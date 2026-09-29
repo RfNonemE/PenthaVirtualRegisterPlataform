@@ -80,6 +80,8 @@ type View =
   | "users"
   | "grades";
 
+type FeedbackType = "success" | "error";
+
 // ── Seed Data ──────────────────────────────────────────────────────────────
 
 const SEED_TEACHERS: Teacher[] = [
@@ -404,7 +406,7 @@ function Dashboard({ user, courses, students, teachers, trimesters, onNavigate }
 
 // ── Courses View ───────────────────────────────────────────────────────────
 
-function CoursesView({ user, courses, setCourses, teachers, setTeachers, students, trimesters, setTrimesters, activities, setActivities, onSelectCourse, onRefresh }: {
+function CoursesView({ user, courses, setCourses, teachers, setTeachers, students, trimesters, setTrimesters, activities, setActivities, onSelectCourse, onRefresh, onNotice }: {
   user: User;
   courses: Course[];
   setCourses: (c: Course[]) => void;
@@ -417,6 +419,7 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
   setActivities: (a: Activity[]) => void;
   onSelectCourse: (id: Id) => void;
   onRefresh: () => Promise<void>;
+  onNotice: (type: FeedbackType, message: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filterTeacher, setFilterTeacher] = useState<Id | "all">("all");
@@ -434,7 +437,10 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
   });
 
   async function addCourse() {
-    if (!newCourse.name || !newCourse.level) return;
+    if (!newCourse.name || !newCourse.level) {
+      onNotice("error", "Completa el nombre y nivel del curso.");
+      return;
+    }
     if (supabase) {
       const { error } = await supabase.from("tbCurso").insert({
         idDocente: newCourse.teacherId || null,
@@ -443,10 +449,11 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
         anio: new Date().getFullYear(),
         descripcion: newCourse.description || null,
       });
-      if (error) { alert(error.message); return; }
+      if (error) { onNotice("error", error.message); return; }
       setNewCourse({ name: "", level: "", teacherId: "", description: "" });
       setShowForm(false);
       await onRefresh();
+      onNotice("success", "Curso creado correctamente. Se generaron sus tres trimestres.");
       return;
     }
     const id = Math.max(...courses.map(c => c.id)) + 1;
@@ -609,7 +616,7 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
 
 // ── Course Detail ──────────────────────────────────────────────────────────
 
-function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers, students, setStudents, trimesters, setTrimesters, activities, grades, setGrades, onBack, onRefresh }: {
+function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers, students, setStudents, trimesters, setTrimesters, activities, grades, setGrades, onBack, onRefresh, onNotice }: {
   user: User;
   course: Course;
   courses: Course[];
@@ -625,6 +632,7 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
   setGrades: (g: Grade[]) => void;
   onBack: () => void;
   onRefresh: () => Promise<void>;
+  onNotice: (type: FeedbackType, message: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<"overview" | 1 | 2 | 3>("overview");
   const [showEnrollForm, setShowEnrollForm] = useState(false);
@@ -642,9 +650,10 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
   async function enroll(studentId: Id) {
     if (supabase) {
       const { error } = await supabase.from("tbInscripcion").insert({ idEstudiante: studentId, idCurso: course.id });
-      if (error) { alert(error.message); return; }
+      if (error) { onNotice("error", error.message); return; }
       setShowEnrollForm(false);
       await onRefresh();
+      onNotice("success", "Estudiante inscrito correctamente en el curso.");
       return;
     }
     setStudents(students.map(s => s.id === studentId ? { ...s, enrolledCourses: [...s.enrolledCourses, course.id] } : s));
@@ -655,8 +664,9 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
       const trimester = trimesters.find(t => t.id === trimId);
       if (!trimester) return;
       const { error } = await supabase.from("tbTrimestre").update({ estado: trimester.status === "open" ? "cerrado" : "abierto" }).eq("idTrimestre", trimId);
-      if (error) { alert(error.message); return; }
+      if (error) { onNotice("error", error.message); return; }
       await onRefresh();
+      onNotice("success", `Trimestre ${trimester.number} ${trimester.status === "open" ? "cerrado" : "reabierto"} correctamente.`);
       return;
     }
     setTrimesters(trimesters.map(t => t.id === trimId ? { ...t, status: t.status === "open" ? "closed" : "open" } : t));
@@ -665,8 +675,9 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
   async function assignTeacher(teacherId: Id | null) {
     if (supabase) {
       const { error } = await supabase.from("tbCurso").update({ idDocente: teacherId }).eq("idCurso", course.id);
-      if (error) { alert(error.message); return; }
+      if (error) { onNotice("error", error.message); return; }
       await onRefresh();
+      onNotice("success", "Docente asignado correctamente al curso.");
       return;
     }
     const previousTeacherId = course.teacherId;
@@ -700,7 +711,10 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
       if (!value) continue;
       const isNotPresent = value.toUpperCase() === "NP";
       const score = Number(value);
-      if (!isNotPresent && (!Number.isFinite(score) || score < 0 || score > activity.maxPoints)) return;
+      if (!isNotPresent && (!Number.isFinite(score) || score < 0 || score > activity.maxPoints)) {
+        onNotice("error", `${student.name}: ingresa un valor entre 0 y ${activity.maxPoints}, o NP.`);
+        return;
+      }
       const existingIndex = updatedGrades.findIndex(g => g.studentId === student.id && g.activityId === activity.id);
       const grade = {
         id: existingIndex >= 0 ? updatedGrades[existingIndex].id : nextId++,
@@ -715,7 +729,10 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
     }
     if (supabase) {
       const activity = activities.find(a => a.id === bulkActivityId);
-      if (!activity?.databaseId || !activity.trimesterId) return;
+      if (!activity?.databaseId || !activity.trimesterId) {
+        onNotice("error", "No se encontró la actividad seleccionada.");
+        return;
+      }
       const rows = enrolled.flatMap(student => {
         const value = (bulkGradeValues[String(student.id)] ?? "").trim();
         const enrollmentId = student.enrollmentIds?.[String(course.id)];
@@ -732,10 +749,15 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
           idUsuarioRegistro: user.id,
         }];
       });
+      if (rows.length === 0) {
+        onNotice("error", "Ingresa al menos una calificación o NP antes de guardar.");
+        return;
+      }
       const { error } = await supabase.from("tbCalificacion").upsert(rows, { onConflict: "idInscripcion,idTrimestre,idActividad" });
-      if (error) { alert(error.message); return; }
+      if (error) { onNotice("error", error.message); return; }
       setBulkActivityId(null);
       await onRefresh();
+      onNotice("success", `Calificaciones de ${activity.name} guardadas correctamente.`);
       return;
     }
     setGrades(updatedGrades);
@@ -747,12 +769,18 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
     const isNotPresent = gradeVal.trim().toUpperCase() === "NP";
     const score = Number(gradeVal);
     const activity = activities.find(a => a.id === editingGrade.activityId);
-    if (!activity || (!isNotPresent && (!Number.isFinite(score) || score < 0 || score > activity.maxPoints))) return;
+    if (!activity || (!isNotPresent && (!Number.isFinite(score) || score < 0 || score > activity.maxPoints))) {
+      onNotice("error", `Ingresa un valor entre 0 y ${activity?.maxPoints ?? 0}, o NP.`);
+      return;
+    }
     const exists = grades.find(g => g.studentId === editingGrade.studentId && g.activityId === editingGrade.activityId);
     if (supabase) {
       const student = students.find(s => s.id === editingGrade.studentId);
       const enrollmentId = student?.enrollmentIds?.[String(course.id)];
-      if (!enrollmentId || !activity?.databaseId) return;
+      if (!enrollmentId || !activity?.databaseId) {
+        onNotice("error", "No se encontró una inscripción válida para registrar la calificación.");
+        return;
+      }
       const { error } = await supabase.from("tbCalificacion").upsert({
         idInscripcion: enrollmentId,
         idTrimestre: activity.trimesterId,
@@ -762,9 +790,10 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
         observacion: gradeObs || null,
         idUsuarioRegistro: user.id,
       }, { onConflict: "idInscripcion,idTrimestre,idActividad" });
-      if (error) { alert(error.message); return; }
+      if (error) { onNotice("error", error.message); return; }
       setEditingGrade(null);
       await onRefresh();
+      onNotice("success", "Calificación guardada correctamente.");
       return;
     }
     if (exists) {
@@ -1124,13 +1153,14 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
 
 // ── Students View ──────────────────────────────────────────────────────────
 
-function StudentsView({ user, students, setStudents, courses, teachers, onRefresh }: {
+function StudentsView({ user, students, setStudents, courses, teachers, onRefresh, onNotice }: {
   user: User;
   students: Student[];
   setStudents: (s: Student[]) => void;
   courses: Course[];
   teachers: Teacher[];
   onRefresh: () => Promise<void>;
+  onNotice: (type: FeedbackType, message: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -1149,23 +1179,27 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
   });
 
   async function addStudent() {
-    if (!newStudent.name || !newStudent.email) return;
+    if (!newStudent.name || !newStudent.email) {
+      onNotice("error", "Completa el nombre y correo electrónico del estudiante.");
+      return;
+    }
     if (supabase) {
       const { data, error } = await supabase.from("tbEstudiante").insert({
         nombreCompleto: newStudent.name,
         correoElectronico: newStudent.email,
         telefono: newStudent.phone || null,
       }).select("idEstudiante").single();
-      if (error || !data) { alert(error?.message ?? "No fue posible registrar el estudiante."); return; }
+      if (error || !data) { onNotice("error", error?.message ?? "No fue posible registrar el estudiante."); return; }
       if (newStudent.courseIds.length > 0) {
         const { error: enrollmentError } = await supabase.from("tbInscripcion").insert(
           newStudent.courseIds.map(idCurso => ({ idEstudiante: data.idEstudiante, idCurso })),
         );
-        if (enrollmentError) { alert(enrollmentError.message); return; }
+        if (enrollmentError) { onNotice("error", enrollmentError.message); return; }
       }
       setNewStudent({ name: "", email: "", phone: "", courseIds: [] });
       setShowForm(false);
       await onRefresh();
+      onNotice("success", "Estudiante registrado correctamente.");
       return;
     }
     const id = Math.max(...students.map(s => s.id)) + 1;
@@ -1296,11 +1330,12 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
 
 // ── Users View ─────────────────────────────────────────────────────────────
 
-function UsersView({ teachers, setTeachers, courses, onRefresh }: {
+function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
   teachers: Teacher[];
   setTeachers: (t: Teacher[]) => void;
   courses: Course[];
   onRefresh: () => Promise<void>;
+  onNotice: (type: FeedbackType, message: string) => void;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [newTeacher, setNewTeacher] = useState({ name: "", email: "", password: "" });
@@ -1308,15 +1343,19 @@ function UsersView({ teachers, setTeachers, courses, onRefresh }: {
   const ADMINS = [{ id: 1, name: "Ana García", email: "admin@academy.com", role: "admin" }];
 
   async function addTeacher() {
-    if (!newTeacher.name || !newTeacher.email || (supabase && newTeacher.password.length < 8)) return;
+    if (!newTeacher.name || !newTeacher.email || (supabase && newTeacher.password.length < 8)) {
+      onNotice("error", "Completa nombre y correo; la contraseña temporal debe tener al menos 8 caracteres.");
+      return;
+    }
     if (supabase) {
       const { error } = await supabase.functions.invoke("admin-create-user", {
         body: { nombreCompleto: newTeacher.name, correoElectronico: newTeacher.email, contrasena: newTeacher.password },
       });
-      if (error) { alert(error.message); return; }
+      if (error) { onNotice("error", error.message); return; }
       setNewTeacher({ name: "", email: "", password: "" });
       setShowForm(false);
       await onRefresh();
+      onNotice("success", "Docente creado correctamente.");
       return;
     }
     const id = Math.max(...teachers.map(t => t.id)) + 1;
@@ -1553,6 +1592,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [loading, setLoading] = useState(isSupabaseConfigured);
   const [connectionError, setConnectionError] = useState("");
+  const [feedback, setFeedback] = useState<{ type: FeedbackType; message: string } | null>(null);
 
   // State
   const [courses, setCourses] = useState<Course[]>(isSupabaseConfigured ? [] : SEED_COURSES);
@@ -1564,7 +1604,6 @@ export default function App() {
 
   async function refreshData() {
     if (!supabase) return;
-    setLoading(true);
     setConnectionError("");
     try {
       const [teachersResult, studentsResult, coursesResult, trimestersResult, enrollmentsResult, activitiesResult, gradesResult] = await Promise.all([
@@ -1652,6 +1691,10 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function showNotice(type: FeedbackType, message: string) {
+    setFeedback({ type, message });
   }
 
   async function loadAuthenticatedUser(userId: string) {
@@ -1761,11 +1804,17 @@ export default function App() {
               Error al sincronizar con Supabase: {connectionError}
             </div>
           )}
+          {feedback && (
+            <div className={`mx-8 mt-6 flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${feedback.type === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"}`}>
+              <span>{feedback.type === "error" ? "Error: " : "Confirmación: "}{feedback.message}</span>
+              <button onClick={() => setFeedback(null)} className="font-medium hover:opacity-70" aria-label="Cerrar mensaje">✕</button>
+            </div>
+          )}
           {view === "dashboard" && (
             <Dashboard user={user} courses={courses} students={students} teachers={teachers} trimesters={trimesters} onNavigate={handleNavigate} />
           )}
           {view === "courses" && (
-            <CoursesView user={user} courses={courses} setCourses={setCourses} teachers={teachers} setTeachers={setTeachers} students={students} trimesters={trimesters} setTrimesters={setTrimesters} activities={activities} setActivities={setActivities} onSelectCourse={handleSelectCourse} onRefresh={refreshData} />
+            <CoursesView user={user} courses={courses} setCourses={setCourses} teachers={teachers} setTeachers={setTeachers} students={students} trimesters={trimesters} setTrimesters={setTrimesters} activities={activities} setActivities={setActivities} onSelectCourse={handleSelectCourse} onRefresh={refreshData} onNotice={showNotice} />
           )}
           {view === "course-detail" && selectedCourse && (
             <CourseDetail
@@ -1776,13 +1825,14 @@ export default function App() {
               grades={grades} setGrades={setGrades}
               onBack={() => handleNavigate("courses")}
               onRefresh={refreshData}
+              onNotice={showNotice}
             />
           )}
           {view === "students" && (
-            <StudentsView user={user} students={students} setStudents={setStudents} courses={courses} teachers={teachers} onRefresh={refreshData} />
+            <StudentsView user={user} students={students} setStudents={setStudents} courses={courses} teachers={teachers} onRefresh={refreshData} onNotice={showNotice} />
           )}
           {view === "users" && user.role === "admin" && (
-            <UsersView teachers={teachers} setTeachers={setTeachers} courses={courses} onRefresh={refreshData} />
+            <UsersView teachers={teachers} setTeachers={setTeachers} courses={courses} onRefresh={refreshData} onNotice={showNotice} />
           )}
           {view === "grades" && (
             <GradesView user={user} courses={courses} students={students} teachers={teachers} trimesters={trimesters} activities={activities} grades={grades} />

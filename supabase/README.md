@@ -29,17 +29,7 @@ select id, email from auth.users order by created_at desc;
 3. Sustituye los valores y ejecuta este registro de perfil. La instrucción se ejecuta desde SQL Editor, por lo que no está limitada por RLS.
 
 ```sql
-insert into public."tbUsuario" (
-  "idUsuario", "idRol", "nombreCompleto", "correoElectronico", "inicialesAvatar"
-)
-select
-  'UUID_DEL_USUARIO_AUTH'::uuid,
-  rol."idRol",
-  'Nombre del Administrador',
-  'correo@ejemplo.com',
-  'NA'
-from public."tbRol" rol
-where rol."nombre" = 'Administrador';
+contrasena
 ```
 
 Este es el único usuario que se crea manualmente. Después, el administrador podrá crear docentes desde PENTHA.
@@ -58,7 +48,7 @@ supabase functions deploy admin-create-user
 ```
 
 La función utiliza automáticamente `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` disponibles en el entorno de Edge Functions. No copies la clave `service_role` al navegador, al archivo `.env.local` ni a Vercel.
-
+x
 ## 5. Configurar la aplicación React
 
 Copia `.env.example` como `.env.local` en la raíz del proyecto y completa solo estas dos variables:
