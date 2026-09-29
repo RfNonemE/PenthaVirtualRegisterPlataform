@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState } from "react";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import {
   BookOpen, Users, GraduationCap, BarChart3, LogOut, Menu, X,
   Plus, Search, ChevronRight, Lock, Unlock, Edit2, Trash2,
@@ -9,9 +10,10 @@ import {
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type Role = "admin" | "teacher";
+type Id = string | number;
 
 interface User {
-  id: number;
+  id: Id;
   name: string;
   email: string;
   role: Role;
@@ -19,49 +21,53 @@ interface User {
 }
 
 interface Teacher {
-  id: number;
+  id: Id;
   name: string;
   email: string;
-  courses: number[];
+  courses: Id[];
 }
 
 interface Student {
-  id: number;
+  id: Id;
+  enrollmentIds?: Record<string, Id>;
   name: string;
   email: string;
   phone: string;
-  enrolledCourses: number[];
+  enrolledCourses: Id[];
 }
 
 interface Activity {
-  id: number;
+  id: Id;
+  databaseId?: number;
   name: string;
-  percentage: number;
-  trimesterId: number;
+  maxPoints: number;
+  trimesterId: Id;
 }
 
 interface Grade {
-  id: number;
-  studentId: number;
-  activityId: number;
+  id: Id;
+  studentId: Id;
+  activityId: Id;
+  trimesterId?: Id;
   score: number;
+  status?: "not_present";
   observation: string;
 }
 
 interface Trimester {
-  id: number;
+  id: Id;
   number: 1 | 2 | 3;
-  courseId: number;
+  courseId: Id;
   startDate: string;
   endDate: string;
   status: "open" | "closed";
 }
 
 interface Course {
-  id: number;
+  id: Id;
   name: string;
   level: string;
-  teacherId: number | null;
+  teacherId: Id | null;
   year: number;
   description: string;
 }
@@ -113,40 +119,49 @@ const SEED_TRIMESTERS: Trimester[] = [
   { id: 12, number: 3, courseId: 4, startDate: "2025-08-18", endDate: "2025-11-28", status: "open" },
 ];
 
-const SEED_ACTIVITIES: Activity[] = [
-  { id: 1, name: "Examen Parcial", percentage: 30, trimesterId: 1 },
-  { id: 2, name: "Trabajo Oral", percentage: 20, trimesterId: 1 },
-  { id: 3, name: "Composición Escrita", percentage: 20, trimesterId: 1 },
-  { id: 4, name: "Examen Final", percentage: 30, trimesterId: 1 },
-  { id: 5, name: "Quiz Vocabulario", percentage: 20, trimesterId: 2 },
-  { id: 6, name: "Proyecto Grupal", percentage: 30, trimesterId: 2 },
-  { id: 7, name: "Examen Parcial", percentage: 25, trimesterId: 2 },
-  { id: 8, name: "Examen Final", percentage: 25, trimesterId: 2 },
-  { id: 9, name: "Examen Parcial", percentage: 30, trimesterId: 4 },
-  { id: 10, name: "Presentación Oral", percentage: 25, trimesterId: 4 },
-  { id: 11, name: "Examen Final", percentage: 45, trimesterId: 4 },
-];
+const FIXED_ACTIVITIES = [
+  { name: "Examen Parcial", maxPoints: 30 },
+  { name: "Examen Final", maxPoints: 30 },
+  { name: "Evaluación Verbal", maxPoints: 10 },
+  { name: "Presentación Final", maxPoints: 20 },
+  { name: "Portafolio", maxPoints: 10 },
+] as const;
+
+function createFixedActivities(trimesters: Trimester[], firstId = 1): Activity[] {
+  return trimesters.flatMap((trimester, trimesterIndex) =>
+    FIXED_ACTIVITIES.map((activity, activityIndex) => ({
+      id: firstId + trimesterIndex * FIXED_ACTIVITIES.length + activityIndex,
+      ...activity,
+      trimesterId: trimester.id,
+    }))
+  );
+}
+
+const SEED_ACTIVITIES: Activity[] = createFixedActivities(SEED_TRIMESTERS);
 
 const SEED_GRADES: Grade[] = [
-  { id: 1, studentId: 1, activityId: 1, score: 85, observation: "Buen manejo gramatical" },
-  { id: 2, studentId: 1, activityId: 2, score: 90, observation: "Excelente pronunciación" },
-  { id: 3, studentId: 1, activityId: 3, score: 78, observation: "" },
-  { id: 4, studentId: 1, activityId: 4, score: 88, observation: "" },
-  { id: 5, studentId: 2, activityId: 1, score: 72, observation: "Necesita reforzar gramática" },
-  { id: 6, studentId: 2, activityId: 2, score: 65, observation: "" },
-  { id: 7, studentId: 2, activityId: 3, score: 80, observation: "" },
-  { id: 8, studentId: 2, activityId: 4, score: 70, observation: "" },
-  { id: 9, studentId: 4, activityId: 1, score: 95, observation: "Desempeño sobresaliente" },
-  { id: 10, studentId: 4, activityId: 2, score: 92, observation: "" },
-  { id: 11, studentId: 4, activityId: 3, score: 88, observation: "" },
-  { id: 12, studentId: 4, activityId: 4, score: 97, observation: "" },
+  { id: 1, studentId: 1, activityId: 1, score: 25, observation: "Buen manejo gramatical" },
+  { id: 2, studentId: 1, activityId: 2, score: 27, observation: "Excelente resultado" },
+  { id: 3, studentId: 1, activityId: 3, score: 9, observation: "" },
+  { id: 4, studentId: 1, activityId: 4, score: 18, observation: "" },
+  { id: 5, studentId: 1, activityId: 5, score: 10, observation: "" },
+  { id: 6, studentId: 2, activityId: 1, score: 21, observation: "Necesita reforzar gramática" },
+  { id: 7, studentId: 2, activityId: 2, score: 19, observation: "" },
+  { id: 8, studentId: 2, activityId: 3, score: 7, observation: "" },
+  { id: 9, studentId: 2, activityId: 4, score: 15, observation: "" },
+  { id: 10, studentId: 2, activityId: 5, score: 8, observation: "" },
+  { id: 11, studentId: 4, activityId: 1, score: 28, observation: "Desempeño sobresaliente" },
+  { id: 12, studentId: 4, activityId: 2, score: 29, observation: "" },
+  { id: 13, studentId: 4, activityId: 3, score: 9, observation: "" },
+  { id: 14, studentId: 4, activityId: 4, score: 19, observation: "" },
+  { id: 15, studentId: 4, activityId: 5, score: 10, observation: "" },
 ];
 
 // ── Auth Screen ────────────────────────────────────────────────────────────
 
-function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
-  const [email, setEmail] = useState("admin@academy.com");
-  const [password, setPassword] = useState("password");
+function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
   const DEMO_USERS: User[] = [
@@ -155,13 +170,12 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
     { id: 3, name: "Carlos Méndez", email: "cmendez@academy.com", role: "teacher", avatar: "CM" },
   ];
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const user = DEMO_USERS.find(u => u.email === email);
-    if (user && password === "password") {
-      onLogin(user);
-    } else {
-      setError("Credenciales incorrectas. Use password: password");
+    try {
+      await onLogin(email, password);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "No fue posible iniciar sesión.");
     }
   }
 
@@ -213,29 +227,11 @@ function LoginScreen({ onLogin }: { onLogin: (user: User) => void }) {
             </button>
           </form>
 
-          {/* Demo accounts */}
-          <div className="mt-6 pt-5 border-t border-border">
-            <p className="text-xs text-muted-foreground mb-3">Cuentas de demostración:</p>
-            <div className="space-y-2">
-              {[
-                { email: "admin@academy.com", label: "Administrador", icon: Shield },
-                { email: "asolano@academy.com", label: "Docente — Principiantes, Básico", icon: GraduationCap },
-                { email: "cmendez@academy.com", label: "Docente — Pre-Intermedio", icon: GraduationCap },
-              ].map(acc => (
-                <button
-                  key={acc.email}
-                  onClick={() => { setEmail(acc.email); setPassword("password"); setError(""); }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-secondary transition-colors group"
-                >
-                  <acc.icon className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0" />
-                  <div>
-                    <p className="text-xs font-medium text-foreground">{acc.label}</p>
-                    <p className="text-xs text-muted-foreground" style={{ fontFamily: "JetBrains Mono, monospace" }}>{acc.email}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
+          {!isSupabaseConfigured && (
+            <p className="mt-5 pt-5 border-t border-border text-xs text-orange-600">
+              Configura Supabase en <code>.env.local</code> para habilitar el acceso real.
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -408,18 +404,22 @@ function Dashboard({ user, courses, students, teachers, trimesters, onNavigate }
 
 // ── Courses View ───────────────────────────────────────────────────────────
 
-function CoursesView({ user, courses, setCourses, teachers, students, trimesters, setTrimesters, onSelectCourse }: {
+function CoursesView({ user, courses, setCourses, teachers, setTeachers, students, trimesters, setTrimesters, activities, setActivities, onSelectCourse, onRefresh }: {
   user: User;
   courses: Course[];
   setCourses: (c: Course[]) => void;
   teachers: Teacher[];
+  setTeachers: (t: Teacher[]) => void;
   students: Student[];
   trimesters: Trimester[];
   setTrimesters: (t: Trimester[]) => void;
-  onSelectCourse: (id: number) => void;
+  activities: Activity[];
+  setActivities: (a: Activity[]) => void;
+  onSelectCourse: (id: Id) => void;
+  onRefresh: () => Promise<void>;
 }) {
   const [search, setSearch] = useState("");
-  const [filterTeacher, setFilterTeacher] = useState<number | "all">("all");
+  const [filterTeacher, setFilterTeacher] = useState<Id | "all">("all");
   const [showForm, setShowForm] = useState(false);
   const [newCourse, setNewCourse] = useState({ name: "", level: "", teacherId: "", description: "" });
 
@@ -433,8 +433,22 @@ function CoursesView({ user, courses, setCourses, teachers, students, trimesters
     return matchSearch && matchTeacher;
   });
 
-  function addCourse() {
+  async function addCourse() {
     if (!newCourse.name || !newCourse.level) return;
+    if (supabase) {
+      const { error } = await supabase.from("tbCurso").insert({
+        idDocente: newCourse.teacherId || null,
+        nombre: newCourse.name,
+        nivel: newCourse.level,
+        anio: new Date().getFullYear(),
+        descripcion: newCourse.description || null,
+      });
+      if (error) { alert(error.message); return; }
+      setNewCourse({ name: "", level: "", teacherId: "", description: "" });
+      setShowForm(false);
+      await onRefresh();
+      return;
+    }
     const id = Math.max(...courses.map(c => c.id)) + 1;
     const course: Course = {
       id, name: newCourse.name, level: newCourse.level,
@@ -442,6 +456,12 @@ function CoursesView({ user, courses, setCourses, teachers, students, trimesters
       year: 2025, description: newCourse.description,
     };
     setCourses([...courses, course]);
+    if (course.teacherId) {
+      setTeachers(teachers.map(t => t.id === course.teacherId && !t.courses.includes(course.id)
+        ? { ...t, courses: [...t.courses, course.id] }
+        : t
+      ));
+    }
     const newTrims: Trimester[] = [1, 2, 3].map((n, i) => ({
       id: Math.max(...trimesters.map(t => t.id)) + 1 + i,
       number: n as 1 | 2 | 3,
@@ -451,6 +471,8 @@ function CoursesView({ user, courses, setCourses, teachers, students, trimesters
       status: "open",
     }));
     setTrimesters([...trimesters, ...newTrims]);
+    const nextActivityId = Math.max(0, ...activities.map(a => a.id)) + 1;
+    setActivities([...activities, ...createFixedActivities(newTrims, nextActivityId)]);
     setNewCourse({ name: "", level: "", teacherId: "", description: "" });
     setShowForm(false);
   }
@@ -483,7 +505,7 @@ function CoursesView({ user, courses, setCourses, teachers, students, trimesters
         {user.role === "admin" && (
           <select
             value={filterTeacher}
-            onChange={e => setFilterTeacher(e.target.value === "all" ? "all" : Number(e.target.value))}
+            onChange={e => setFilterTeacher(e.target.value === "all" ? "all" : e.target.value)}
             className="bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
           >
             <option value="all">Todos los docentes</option>
@@ -587,87 +609,190 @@ function CoursesView({ user, courses, setCourses, teachers, students, trimesters
 
 // ── Course Detail ──────────────────────────────────────────────────────────
 
-function CourseDetail({ user, course, teachers, students, setStudents, trimesters, setTrimesters, activities, setActivities, grades, setGrades, onBack }: {
+function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers, students, setStudents, trimesters, setTrimesters, activities, grades, setGrades, onBack, onRefresh }: {
   user: User;
   course: Course;
+  courses: Course[];
+  setCourses: (c: Course[]) => void;
   teachers: Teacher[];
+  setTeachers: (t: Teacher[]) => void;
   students: Student[];
   setStudents: (s: Student[]) => void;
   trimesters: Trimester[];
   setTrimesters: (t: Trimester[]) => void;
   activities: Activity[];
-  setActivities: (a: Activity[]) => void;
   grades: Grade[];
   setGrades: (g: Grade[]) => void;
   onBack: () => void;
+  onRefresh: () => Promise<void>;
 }) {
   const [activeTab, setActiveTab] = useState<"overview" | 1 | 2 | 3>("overview");
   const [showEnrollForm, setShowEnrollForm] = useState(false);
-  const [showActivityForm, setShowActivityForm] = useState<number | null>(null);
-  const [newActivity, setNewActivity] = useState({ name: "", percentage: "" });
-  const [editingGrade, setEditingGrade] = useState<{ studentId: number; activityId: number } | null>(null);
+  const [editingGrade, setEditingGrade] = useState<{ studentId: Id; activityId: Id } | null>(null);
   const [gradeVal, setGradeVal] = useState("");
   const [gradeObs, setGradeObs] = useState("");
+  const [bulkActivityId, setBulkActivityId] = useState<Id | null>(null);
+  const [bulkGradeValues, setBulkGradeValues] = useState<Record<string, string>>({});
 
   const teacher = teachers.find(t => t.id === course.teacherId);
   const enrolled = students.filter(s => s.enrolledCourses.includes(course.id));
   const notEnrolled = students.filter(s => !s.enrolledCourses.includes(course.id));
   const courseTrimesters = trimesters.filter(t => t.courseId === course.id).sort((a, b) => a.number - b.number);
 
-  function enroll(studentId: number) {
+  async function enroll(studentId: Id) {
+    if (supabase) {
+      const { error } = await supabase.from("tbInscripcion").insert({ idEstudiante: studentId, idCurso: course.id });
+      if (error) { alert(error.message); return; }
+      setShowEnrollForm(false);
+      await onRefresh();
+      return;
+    }
     setStudents(students.map(s => s.id === studentId ? { ...s, enrolledCourses: [...s.enrolledCourses, course.id] } : s));
   }
 
-  function toggleTrimester(trimId: number) {
+  async function toggleTrimester(trimId: Id) {
+    if (supabase) {
+      const trimester = trimesters.find(t => t.id === trimId);
+      if (!trimester) return;
+      const { error } = await supabase.from("tbTrimestre").update({ estado: trimester.status === "open" ? "cerrado" : "abierto" }).eq("idTrimestre", trimId);
+      if (error) { alert(error.message); return; }
+      await onRefresh();
+      return;
+    }
     setTrimesters(trimesters.map(t => t.id === trimId ? { ...t, status: t.status === "open" ? "closed" : "open" } : t));
   }
 
-  function addActivity(trimesterId: number) {
-    if (!newActivity.name || !newActivity.percentage) return;
-    const trimActivities = activities.filter(a => a.trimesterId === trimesterId);
-    const usedPct = trimActivities.reduce((sum, a) => sum + a.percentage, 0);
-    if (usedPct + Number(newActivity.percentage) > 100) {
-      alert("El porcentaje total no puede superar el 100%");
+  async function assignTeacher(teacherId: Id | null) {
+    if (supabase) {
+      const { error } = await supabase.from("tbCurso").update({ idDocente: teacherId }).eq("idCurso", course.id);
+      if (error) { alert(error.message); return; }
+      await onRefresh();
       return;
     }
-    const id = Math.max(0, ...activities.map(a => a.id)) + 1;
-    setActivities([...activities, { id, name: newActivity.name, percentage: Number(newActivity.percentage), trimesterId }]);
-    setNewActivity({ name: "", percentage: "" });
-    setShowActivityForm(null);
+    const previousTeacherId = course.teacherId;
+    setCourses(courses.map(c => c.id === course.id ? { ...c, teacherId } : c));
+    setTeachers(teachers.map(t => {
+      if (t.id === previousTeacherId) return { ...t, courses: t.courses.filter(id => id !== course.id) };
+      if (t.id === teacherId && !t.courses.includes(course.id)) return { ...t, courses: [...t.courses, course.id] };
+      return t;
+    }));
   }
 
-  function saveGrade() {
+  function openBulkGradeEntry(activityId: Id) {
+    const values: Record<string, string> = {};
+    enrolled.forEach(student => {
+      const grade = grades.find(g => g.studentId === student.id && g.activityId === activityId);
+      values[String(student.id)] = grade?.status === "not_present" ? "NP" : grade ? String(grade.score) : "";
+    });
+    setBulkGradeValues(values);
+    setBulkActivityId(activityId);
+  }
+
+  async function saveBulkGrades() {
+    if (!bulkActivityId) return;
+    const activity = activities.find(a => a.id === bulkActivityId);
+    if (!activity) return;
+
+    const updatedGrades = [...grades];
+    let nextId = Math.max(0, ...grades.map(g => g.id)) + 1;
+    for (const student of enrolled) {
+      const value = (bulkGradeValues[String(student.id)] ?? "").trim();
+      if (!value) continue;
+      const isNotPresent = value.toUpperCase() === "NP";
+      const score = Number(value);
+      if (!isNotPresent && (!Number.isFinite(score) || score < 0 || score > activity.maxPoints)) return;
+      const existingIndex = updatedGrades.findIndex(g => g.studentId === student.id && g.activityId === activity.id);
+      const grade = {
+        id: existingIndex >= 0 ? updatedGrades[existingIndex].id : nextId++,
+        studentId: student.id,
+        activityId: activity.id,
+        score: isNotPresent ? 0 : score,
+        status: isNotPresent ? "not_present" as const : undefined,
+        observation: existingIndex >= 0 ? updatedGrades[existingIndex].observation : "",
+      };
+      if (existingIndex >= 0) updatedGrades[existingIndex] = grade;
+      else updatedGrades.push(grade);
+    }
+    if (supabase) {
+      const activity = activities.find(a => a.id === bulkActivityId);
+      if (!activity?.databaseId || !activity.trimesterId) return;
+      const rows = enrolled.flatMap(student => {
+        const value = (bulkGradeValues[String(student.id)] ?? "").trim();
+        const enrollmentId = student.enrollmentIds?.[String(course.id)];
+        if (!value || !enrollmentId) return [];
+        const noPresento = value.toUpperCase() === "NP";
+        const score = Number(value);
+        if (!noPresento && (!Number.isFinite(score) || score < 0 || score > activity.maxPoints)) return [];
+        return [{
+          idInscripcion: enrollmentId,
+          idTrimestre: activity.trimesterId,
+          idActividad: activity.databaseId,
+          puntosObtenidos: noPresento ? 0 : score,
+          estado: noPresento ? "noPresento" : "calificada",
+          idUsuarioRegistro: user.id,
+        }];
+      });
+      const { error } = await supabase.from("tbCalificacion").upsert(rows, { onConflict: "idInscripcion,idTrimestre,idActividad" });
+      if (error) { alert(error.message); return; }
+      setBulkActivityId(null);
+      await onRefresh();
+      return;
+    }
+    setGrades(updatedGrades);
+    setBulkActivityId(null);
+  }
+
+  async function saveGrade() {
     if (!editingGrade) return;
+    const isNotPresent = gradeVal.trim().toUpperCase() === "NP";
     const score = Number(gradeVal);
-    if (score < 0 || score > 100) return;
+    const activity = activities.find(a => a.id === editingGrade.activityId);
+    if (!activity || (!isNotPresent && (!Number.isFinite(score) || score < 0 || score > activity.maxPoints))) return;
     const exists = grades.find(g => g.studentId === editingGrade.studentId && g.activityId === editingGrade.activityId);
+    if (supabase) {
+      const student = students.find(s => s.id === editingGrade.studentId);
+      const enrollmentId = student?.enrollmentIds?.[String(course.id)];
+      if (!enrollmentId || !activity?.databaseId) return;
+      const { error } = await supabase.from("tbCalificacion").upsert({
+        idInscripcion: enrollmentId,
+        idTrimestre: activity.trimesterId,
+        idActividad: activity.databaseId,
+        puntosObtenidos: isNotPresent ? 0 : score,
+        estado: isNotPresent ? "noPresento" : "calificada",
+        observacion: gradeObs || null,
+        idUsuarioRegistro: user.id,
+      }, { onConflict: "idInscripcion,idTrimestre,idActividad" });
+      if (error) { alert(error.message); return; }
+      setEditingGrade(null);
+      await onRefresh();
+      return;
+    }
     if (exists) {
-      setGrades(grades.map(g => g.id === exists.id ? { ...g, score, observation: gradeObs } : g));
+      setGrades(grades.map(g => g.id === exists.id ? { ...g, score: isNotPresent ? 0 : score, status: isNotPresent ? "not_present" : undefined, observation: gradeObs } : g));
     } else {
       const id = Math.max(0, ...grades.map(g => g.id)) + 1;
-      setGrades([...grades, { id, studentId: editingGrade.studentId, activityId: editingGrade.activityId, score, observation: gradeObs }]);
+      setGrades([...grades, { id, studentId: editingGrade.studentId, activityId: editingGrade.activityId, score: isNotPresent ? 0 : score, status: isNotPresent ? "not_present" : undefined, observation: gradeObs }]);
     }
     setEditingGrade(null);
     setGradeVal("");
     setGradeObs("");
   }
 
-  function calcStudentTrimGrade(studentId: number, trimesterId: number) {
+  function calcStudentTrimGrade(studentId: Id, trimesterId: Id) {
     const trimActivities = activities.filter(a => a.trimesterId === trimesterId);
     if (trimActivities.length === 0) return null;
     let total = 0;
-    let totalPct = 0;
     for (const act of trimActivities) {
       const grade = grades.find(g => g.studentId === studentId && g.activityId === act.id);
-      if (grade) { total += (grade.score * act.percentage) / 100; totalPct += act.percentage; }
+      if (grade) total += grade.status === "not_present" ? 0 : grade.score;
     }
-    if (totalPct === 0) return null;
-    return (total / totalPct) * 100;
+    return total === 0 && !grades.some(g => g.studentId === studentId && trimActivities.some(a => a.id === g.activityId))
+      ? null
+      : total;
   }
 
   const activeTrimester = typeof activeTab === "number" ? courseTrimesters.find(t => t.number === activeTab) : null;
   const trimActivities = activeTrimester ? activities.filter(a => a.trimesterId === activeTrimester.id) : [];
-  const usedPct = trimActivities.reduce((sum, a) => sum + a.percentage, 0);
   const isOpen = activeTrimester?.status === "open";
   const canEdit = user.role === "admin" || (user.role === "teacher" && isOpen);
 
@@ -686,7 +811,19 @@ function CourseDetail({ user, course, teachers, students, setStudents, trimester
             </div>
             <p className="text-sm text-muted-foreground">{course.description}</p>
           </div>
-          {teacher && (
+          {user.role === "admin" ? (
+            <div className="text-right text-sm">
+              <label className="block text-muted-foreground text-xs mb-1">Docente asignado</label>
+              <select
+                value={course.teacherId ?? ""}
+                onChange={e => assignTeacher(e.target.value ? Number(e.target.value) : null)}
+                className="bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+              >
+                <option value="">Sin asignar</option>
+                {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+          ) : teacher && (
             <div className="text-right text-sm">
               <p className="text-muted-foreground text-xs">Docente</p>
               <p className="text-foreground font-medium">{teacher.name}</p>
@@ -817,35 +954,12 @@ function CourseDetail({ user, course, teachers, students, setStudents, trimester
           <div className="bg-card border border-border rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-sm font-semibold text-foreground">Actividades Evaluativas</h2>
+                <h2 className="text-sm font-semibold text-foreground">Actividades Evaluativas Fijas</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Porcentaje utilizado: <span style={{ fontFamily: "JetBrains Mono, monospace" }} className={usedPct > 100 ? "text-red-400" : usedPct === 100 ? "text-green-600" : "text-orange-500"}>{usedPct}%</span> / 100%
+                  Calificación total: <span className="text-green-600" style={{ fontFamily: "JetBrains Mono, monospace" }}>100 pts</span>
                 </p>
               </div>
-              {canEdit && usedPct < 100 && (
-                <button onClick={() => setShowActivityForm(activeTrimester.id)} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 transition-colors">
-                  <Plus className="w-3.5 h-3.5" /> Agregar Actividad
-                </button>
-              )}
             </div>
-
-            {showActivityForm === activeTrimester.id && (
-              <div className="mb-4 p-3 bg-secondary/30 rounded-lg flex gap-3 items-end">
-                <div className="flex-1">
-                  <label className="block text-xs text-muted-foreground mb-1">Nombre</label>
-                  <input value={newActivity.name} onChange={e => setNewActivity({ ...newActivity, name: e.target.value })}
-                    className="w-full bg-input-background border border-border rounded-lg px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary/50" placeholder="Ej. Examen Parcial" />
-                </div>
-                <div className="w-28">
-                  <label className="block text-xs text-muted-foreground mb-1">Porcentaje</label>
-                  <input value={newActivity.percentage} onChange={e => setNewActivity({ ...newActivity, percentage: e.target.value })}
-                    type="number" min="1" max={100 - usedPct}
-                    className="w-full bg-input-background border border-border rounded-lg px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary/50" placeholder={`Máx ${100 - usedPct}`} />
-                </div>
-                <button onClick={() => addActivity(activeTrimester.id)} className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-xs font-medium">Agregar</button>
-                <button onClick={() => setShowActivityForm(null)} className="text-muted-foreground hover:text-foreground text-xs px-2">✕</button>
-              </div>
-            )}
 
             {trimActivities.length === 0
               ? <p className="text-sm text-muted-foreground text-center py-4">No hay actividades registradas</p>
@@ -854,12 +968,51 @@ function CourseDetail({ user, course, teachers, students, setStudents, trimester
                   {trimActivities.map(act => (
                     <div key={act.id} className="flex items-center justify-between py-2 border-b border-border/40 last:border-0">
                       <span className="text-sm text-foreground">{act.name}</span>
-                      <span className="text-xs font-medium text-primary px-2 py-0.5 bg-primary/10 rounded" style={{ fontFamily: "JetBrains Mono, monospace" }}>{act.percentage}%</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-medium text-primary px-2 py-0.5 bg-primary/10 rounded" style={{ fontFamily: "JetBrains Mono, monospace" }}>{act.maxPoints} pts</span>
+                        {canEdit && (
+                          <button onClick={() => openBulkGradeEntry(act.id)} className="text-xs text-primary hover:text-primary/80 transition-colors">
+                            Ingresar calificaciones
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
           </div>
+
+          {bulkActivityId && (() => {
+            const activity = trimActivities.find(a => a.id === bulkActivityId);
+            if (!activity) return null;
+            return (
+              <div className="bg-card border border-primary/20 rounded-xl p-5">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">Ingresar calificaciones: {activity.name}</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">Máximo {activity.maxPoints} pts. Escriba <span className="font-medium text-foreground">NP</span> para “No Presentó”.</p>
+                  </div>
+                  <button onClick={() => setBulkActivityId(null)} className="text-xs text-muted-foreground hover:text-foreground">Cancelar</button>
+                </div>
+                <div className="space-y-2">
+                  {enrolled.map(student => (
+                    <div key={student.id} className="flex items-center justify-between gap-4">
+                      <span className="text-sm text-foreground">{student.name}</span>
+                      <input
+                        value={bulkGradeValues[student.id] ?? ""}
+                        onChange={e => setBulkGradeValues({ ...bulkGradeValues, [student.id]: e.target.value })}
+                        className="w-28 bg-input-background border border-border rounded-lg px-3 py-1.5 text-sm text-center text-foreground outline-none focus:border-primary/50"
+                        placeholder={`0–${activity.maxPoints} o NP`}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end mt-4">
+                  <button onClick={saveBulkGrades} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium">Guardar calificaciones</button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Grades table */}
           {trimActivities.length > 0 && (
@@ -875,7 +1028,7 @@ function CourseDetail({ user, course, teachers, students, setStudents, trimester
                       {trimActivities.map(act => (
                         <th key={act.id} className="text-center px-3 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                           <div>{act.name}</div>
-                          <div className="text-primary/70 normal-case" style={{ fontFamily: "JetBrains Mono, monospace" }}>{act.percentage}%</div>
+                          <div className="text-primary/70 normal-case" style={{ fontFamily: "JetBrains Mono, monospace" }}>{act.maxPoints} pts</div>
                         </th>
                       ))}
                       <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">Nota Final</th>
@@ -897,8 +1050,9 @@ function CourseDetail({ user, course, teachers, students, setStudents, trimester
                                 {isEditing ? (
                                   <div className="flex flex-col gap-1 items-center">
                                     <input value={gradeVal} onChange={e => setGradeVal(e.target.value)}
-                                      type="number" min="0" max="100" autoFocus
+                                      autoFocus
                                       className="w-16 bg-input-background border border-primary/50 rounded px-2 py-0.5 text-xs text-center text-foreground outline-none"
+                                      placeholder={`0-${act.maxPoints} / NP`}
                                       onKeyDown={e => { if (e.key === "Enter") saveGrade(); if (e.key === "Escape") setEditingGrade(null); }}
                                     />
                                     <input value={gradeObs} onChange={e => setGradeObs(e.target.value)}
@@ -915,20 +1069,20 @@ function CourseDetail({ user, course, teachers, students, setStudents, trimester
                                     disabled={!canEdit}
                                     onClick={() => {
                                       setEditingGrade({ studentId: student.id, activityId: act.id });
-                                      setGradeVal(grade ? String(grade.score) : "");
+                                      setGradeVal(grade?.status === "not_present" ? "NP" : grade ? String(grade.score) : "");
                                       setGradeObs(grade?.observation ?? "");
                                     }}
                                     className={`text-sm font-medium transition-colors rounded px-2 py-0.5 ${
                                       grade
-                                        ? grade.score >= 70
-                                          ? "text-green-600 hover:bg-green-500/10"
-                                          : "text-red-400 hover:bg-red-400/10"
+                                        ? grade.status === "not_present"
+                                          ? "text-orange-500 hover:bg-orange-500/10"
+                                          : "text-primary hover:bg-primary/10"
                                         : "text-muted-foreground/40 hover:text-muted-foreground"
                                     } ${!canEdit ? "cursor-default" : "cursor-pointer"}`}
                                     style={{ fontFamily: "JetBrains Mono, monospace" }}
                                     title={grade?.observation || ""}
                                   >
-                                    {grade ? grade.score : "—"}
+                                    {grade ? (grade.status === "not_present" ? "NP" : grade.score) : "—"}
                                     {grade?.observation && <span className="ml-1 text-xs text-muted-foreground/60">*</span>}
                                   </button>
                                 )}
@@ -970,16 +1124,17 @@ function CourseDetail({ user, course, teachers, students, setStudents, trimester
 
 // ── Students View ──────────────────────────────────────────────────────────
 
-function StudentsView({ user, students, setStudents, courses, teachers }: {
+function StudentsView({ user, students, setStudents, courses, teachers, onRefresh }: {
   user: User;
   students: Student[];
   setStudents: (s: Student[]) => void;
   courses: Course[];
   teachers: Teacher[];
+  onRefresh: () => Promise<void>;
 }) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [newStudent, setNewStudent] = useState({ name: "", email: "", phone: "" });
+  const [newStudent, setNewStudent] = useState({ name: "", email: "", phone: "", courseIds: [] as Id[] });
 
   const myTeacher = teachers.find(t => t.email === user.email);
   const myCourseIds = myTeacher?.courses ?? [];
@@ -993,11 +1148,29 @@ function StudentsView({ user, students, setStudents, courses, teachers }: {
     return matchSearch;
   });
 
-  function addStudent() {
+  async function addStudent() {
     if (!newStudent.name || !newStudent.email) return;
+    if (supabase) {
+      const { data, error } = await supabase.from("tbEstudiante").insert({
+        nombreCompleto: newStudent.name,
+        correoElectronico: newStudent.email,
+        telefono: newStudent.phone || null,
+      }).select("idEstudiante").single();
+      if (error || !data) { alert(error?.message ?? "No fue posible registrar el estudiante."); return; }
+      if (newStudent.courseIds.length > 0) {
+        const { error: enrollmentError } = await supabase.from("tbInscripcion").insert(
+          newStudent.courseIds.map(idCurso => ({ idEstudiante: data.idEstudiante, idCurso })),
+        );
+        if (enrollmentError) { alert(enrollmentError.message); return; }
+      }
+      setNewStudent({ name: "", email: "", phone: "", courseIds: [] });
+      setShowForm(false);
+      await onRefresh();
+      return;
+    }
     const id = Math.max(...students.map(s => s.id)) + 1;
-    setStudents([...students, { id, name: newStudent.name, email: newStudent.email, phone: newStudent.phone, enrolledCourses: [] }]);
-    setNewStudent({ name: "", email: "", phone: "" });
+    setStudents([...students, { id, name: newStudent.name, email: newStudent.email, phone: newStudent.phone, enrolledCourses: newStudent.courseIds }]);
+    setNewStudent({ name: "", email: "", phone: "", courseIds: [] });
     setShowForm(false);
   }
 
@@ -1008,9 +1181,11 @@ function StudentsView({ user, students, setStudents, courses, teachers }: {
           <h1 className="text-xl font-semibold text-foreground">Estudiantes</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{visible.length} estudiante{visible.length !== 1 ? "s" : ""}</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">
-          <Plus className="w-4 h-4" /> Nuevo Estudiante
-        </button>
+        {user.role === "admin" && (
+          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">
+            <Plus className="w-4 h-4" /> Nuevo Estudiante
+          </button>
+        )}
       </div>
 
       <div className="relative">
@@ -1023,7 +1198,7 @@ function StudentsView({ user, students, setStudents, courses, teachers }: {
         />
       </div>
 
-      {showForm && (
+      {showForm && user.role === "admin" && (
         <div className="bg-card border border-primary/20 rounded-xl p-6 space-y-4">
           <h3 className="text-sm font-semibold text-foreground">Registrar Estudiante</h3>
           <div className="grid grid-cols-3 gap-4">
@@ -1042,6 +1217,29 @@ function StudentsView({ user, students, setStudents, courses, teachers }: {
                 />
               </div>
             ))}
+          </div>
+          <div>
+            <label className="block text-xs text-muted-foreground mb-2 uppercase tracking-wider">Inscribir en cursos</label>
+            <div className="flex flex-wrap gap-2">
+              {courses.map(course => {
+                const selected = newStudent.courseIds.includes(course.id);
+                return (
+                  <button
+                    key={course.id}
+                    type="button"
+                    onClick={() => setNewStudent({
+                      ...newStudent,
+                      courseIds: selected
+                        ? newStudent.courseIds.filter(id => id !== course.id)
+                        : [...newStudent.courseIds, course.id],
+                    })}
+                    className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border hover:border-primary/50"}`}
+                  >
+                    {selected ? "✓ " : ""}{course.name} · {course.level}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div className="flex gap-2 pt-2">
             <button onClick={addStudent} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">Guardar</button>
@@ -1098,21 +1296,32 @@ function StudentsView({ user, students, setStudents, courses, teachers }: {
 
 // ── Users View ─────────────────────────────────────────────────────────────
 
-function UsersView({ teachers, setTeachers, courses }: {
+function UsersView({ teachers, setTeachers, courses, onRefresh }: {
   teachers: Teacher[];
   setTeachers: (t: Teacher[]) => void;
   courses: Course[];
+  onRefresh: () => Promise<void>;
 }) {
   const [showForm, setShowForm] = useState(false);
-  const [newTeacher, setNewTeacher] = useState({ name: "", email: "" });
+  const [newTeacher, setNewTeacher] = useState({ name: "", email: "", password: "" });
 
   const ADMINS = [{ id: 1, name: "Ana García", email: "admin@academy.com", role: "admin" }];
 
-  function addTeacher() {
-    if (!newTeacher.name || !newTeacher.email) return;
+  async function addTeacher() {
+    if (!newTeacher.name || !newTeacher.email || (supabase && newTeacher.password.length < 8)) return;
+    if (supabase) {
+      const { error } = await supabase.functions.invoke("admin-create-user", {
+        body: { nombreCompleto: newTeacher.name, correoElectronico: newTeacher.email, contrasena: newTeacher.password },
+      });
+      if (error) { alert(error.message); return; }
+      setNewTeacher({ name: "", email: "", password: "" });
+      setShowForm(false);
+      await onRefresh();
+      return;
+    }
     const id = Math.max(...teachers.map(t => t.id)) + 1;
     setTeachers([...teachers, { id, name: newTeacher.name, email: newTeacher.email, courses: [] }]);
-    setNewTeacher({ name: "", email: "" });
+    setNewTeacher({ name: "", email: "", password: "" });
     setShowForm(false);
   }
 
@@ -1169,6 +1378,13 @@ function UsersView({ teachers, setTeachers, courses }: {
               <input value={newTeacher.email} onChange={e => setNewTeacher({ ...newTeacher, email: e.target.value })}
                 className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50" placeholder="docente@academy.com" />
             </div>
+            {supabase && (
+              <div className="flex-1">
+                <label className="block text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Contraseña temporal</label>
+                <input type="password" value={newTeacher.password} onChange={e => setNewTeacher({ ...newTeacher, password: e.target.value })}
+                  className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50" placeholder="Mínimo 8 caracteres" />
+              </div>
+            )}
             <button onClick={addTeacher} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium flex-shrink-0">Guardar</button>
             <button onClick={() => setShowForm(false)} className="text-muted-foreground text-sm flex-shrink-0">✕</button>
           </div>
@@ -1230,20 +1446,21 @@ function GradesView({ user, courses, students, teachers, trimesters, activities,
   activities: Activity[];
   grades: Grade[];
 }) {
-  const [selectedCourse, setSelectedCourse] = useState<number | "all">("all");
+  const [selectedCourse, setSelectedCourse] = useState<Id | "all">("all");
 
   const myTeacher = teachers.find(t => t.email === user.email);
   const visibleCourses = user.role === "admin" ? courses : courses.filter(c => myTeacher?.courses.includes(c.id));
 
-  function calcStudentTrimGrade(studentId: number, trimesterId: number) {
+  function calcStudentTrimGrade(studentId: Id, trimesterId: Id) {
     const trimActivities = activities.filter(a => a.trimesterId === trimesterId);
     if (trimActivities.length === 0) return null;
-    let total = 0; let totalPct = 0;
+    let total = 0;
+    let hasGrade = false;
     for (const act of trimActivities) {
       const g = grades.find(g => g.studentId === studentId && g.activityId === act.id);
-      if (g) { total += (g.score * act.percentage) / 100; totalPct += act.percentage; }
+      if (g) { total += g.status === "not_present" ? 0 : g.score; hasGrade = true; }
     }
-    return totalPct === 0 ? null : (total / totalPct) * 100;
+    return hasGrade ? total : null;
   }
 
   const filteredCourses = selectedCourse === "all" ? visibleCourses : visibleCourses.filter(c => c.id === selectedCourse);
@@ -1255,7 +1472,7 @@ function GradesView({ user, courses, students, teachers, trimesters, activities,
           <h1 className="text-xl font-semibold text-foreground">Calificaciones</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Resumen de notas por curso y trimestre</p>
         </div>
-        <select value={selectedCourse} onChange={e => setSelectedCourse(e.target.value === "all" ? "all" : Number(e.target.value))}
+        <select value={selectedCourse} onChange={e => setSelectedCourse(e.target.value === "all" ? "all" : e.target.value)}
           className="bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50">
           <option value="all">Todos los cursos</option>
           {visibleCourses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -1332,19 +1549,168 @@ function GradesView({ user, courses, students, teachers, trimesters, activities,
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState<View>("dashboard");
-  const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
+  const [selectedCourseId, setSelectedCourseId] = useState<Id | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [loading, setLoading] = useState(isSupabaseConfigured);
+  const [connectionError, setConnectionError] = useState("");
 
   // State
-  const [courses, setCourses] = useState<Course[]>(SEED_COURSES);
-  const [teachers, setTeachers] = useState<Teacher[]>(SEED_TEACHERS);
-  const [students, setStudents] = useState<Student[]>(SEED_STUDENTS);
-  const [trimesters, setTrimesters] = useState<Trimester[]>(SEED_TRIMESTERS);
-  const [activities, setActivities] = useState<Activity[]>(SEED_ACTIVITIES);
-  const [grades, setGrades] = useState<Grade[]>(SEED_GRADES);
+  const [courses, setCourses] = useState<Course[]>(isSupabaseConfigured ? [] : SEED_COURSES);
+  const [teachers, setTeachers] = useState<Teacher[]>(isSupabaseConfigured ? [] : SEED_TEACHERS);
+  const [students, setStudents] = useState<Student[]>(isSupabaseConfigured ? [] : SEED_STUDENTS);
+  const [trimesters, setTrimesters] = useState<Trimester[]>(isSupabaseConfigured ? [] : SEED_TRIMESTERS);
+  const [activities, setActivities] = useState<Activity[]>(isSupabaseConfigured ? [] : SEED_ACTIVITIES);
+  const [grades, setGrades] = useState<Grade[]>(isSupabaseConfigured ? [] : SEED_GRADES);
 
+  async function refreshData() {
+    if (!supabase) return;
+    setLoading(true);
+    setConnectionError("");
+    try {
+      const [teachersResult, studentsResult, coursesResult, trimestersResult, enrollmentsResult, activitiesResult, gradesResult] = await Promise.all([
+        supabase.from("tbDocente").select("idDocente, tbUsuario!inner(nombreCompleto, correoElectronico)"),
+        supabase.from("tbEstudiante").select("idEstudiante, nombreCompleto, correoElectronico, telefono").eq("activo", true),
+        supabase.from("tbCurso").select("idCurso, idDocente, nombre, nivel, anio, descripcion").eq("activo", true),
+        supabase.from("tbTrimestre").select("idTrimestre, idCurso, numero, fechaInicio, fechaFin, estado"),
+        supabase.from("tbInscripcion").select("idInscripcion, idEstudiante, idCurso").eq("estado", "activa"),
+        supabase.from("tbActividad").select("idActividad, nombre, puntosMaximos, orden").eq("activo", true).order("orden"),
+        supabase.from("tbCalificacion").select("idCalificacion, idInscripcion, idTrimestre, idActividad, puntosObtenidos, estado, observacion"),
+      ]);
+
+      const resultWithError = [teachersResult, studentsResult, coursesResult, trimestersResult, enrollmentsResult, activitiesResult, gradesResult].find(result => result.error);
+      if (resultWithError?.error) throw resultWithError.error;
+
+      const remoteCourses: Course[] = (coursesResult.data ?? []).map((row: any) => ({
+        id: row.idCurso, teacherId: row.idDocente, name: row.nombre, level: row.nivel,
+        year: row.anio, description: row.descripcion ?? "",
+      }));
+      const remoteTrimesters: Trimester[] = (trimestersResult.data ?? []).map((row: any) => ({
+        id: row.idTrimestre, courseId: row.idCurso, number: row.numero,
+        startDate: row.fechaInicio, endDate: row.fechaFin,
+        status: row.estado === "cerrado" ? "closed" : "open",
+      }));
+      const courseIdsByTeacher = new Map<string, Id[]>();
+      remoteCourses.forEach(course => {
+        if (!course.teacherId) return;
+        const key = String(course.teacherId);
+        courseIdsByTeacher.set(key, [...(courseIdsByTeacher.get(key) ?? []), course.id]);
+      });
+      const remoteTeachers: Teacher[] = (teachersResult.data ?? []).map((row: any) => {
+        const profile = Array.isArray(row.tbUsuario) ? row.tbUsuario[0] : row.tbUsuario;
+        return {
+          id: row.idDocente,
+          name: profile?.nombreCompleto ?? "Docente",
+          email: profile?.correoElectronico ?? "",
+          courses: courseIdsByTeacher.get(String(row.idDocente)) ?? [],
+        };
+      });
+      const enrollmentsByStudent = new Map<string, { courseId: Id; enrollmentId: Id }[]>();
+      const enrollmentById = new Map<string, any>();
+      (enrollmentsResult.data ?? []).forEach((row: any) => {
+        enrollmentById.set(String(row.idInscripcion), row);
+        const key = String(row.idEstudiante);
+        enrollmentsByStudent.set(key, [...(enrollmentsByStudent.get(key) ?? []), { courseId: row.idCurso, enrollmentId: row.idInscripcion }]);
+      });
+      const remoteStudents: Student[] = (studentsResult.data ?? []).map((row: any) => {
+        const enrollments = enrollmentsByStudent.get(String(row.idEstudiante)) ?? [];
+        return {
+          id: row.idEstudiante, name: row.nombreCompleto, email: row.correoElectronico,
+          phone: row.telefono ?? "", enrolledCourses: enrollments.map(item => item.courseId),
+          enrollmentIds: Object.fromEntries(enrollments.map(item => [String(item.courseId), item.enrollmentId])),
+        };
+      });
+      const remoteActivities: Activity[] = remoteTrimesters.flatMap(trimester =>
+        (activitiesResult.data ?? []).map((row: any) => ({
+          id: `${trimester.id}:${row.idActividad}`,
+          databaseId: row.idActividad,
+          name: row.nombre,
+          maxPoints: Number(row.puntosMaximos),
+          trimesterId: trimester.id,
+        })),
+      );
+      const remoteGrades: Grade[] = (gradesResult.data ?? []).flatMap((row: any) => {
+        const enrollment = enrollmentById.get(String(row.idInscripcion));
+        if (!enrollment) return [];
+        return [{
+          id: row.idCalificacion,
+          studentId: enrollment.idEstudiante,
+          activityId: `${row.idTrimestre}:${row.idActividad}`,
+          trimesterId: row.idTrimestre,
+          score: Number(row.puntosObtenidos),
+          status: row.estado === "noPresento" ? "not_present" : undefined,
+          observation: row.observacion ?? "",
+        }];
+      });
+      setCourses(remoteCourses);
+      setTeachers(remoteTeachers);
+      setStudents(remoteStudents);
+      setTrimesters(remoteTrimesters);
+      setActivities(remoteActivities);
+      setGrades(remoteGrades);
+    } catch (error) {
+      setConnectionError(error instanceof Error ? error.message : "No fue posible cargar los datos de Supabase.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadAuthenticatedUser(userId: string) {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from("tbUsuario")
+      .select("idUsuario, nombreCompleto, correoElectronico, inicialesAvatar, tbRol!inner(nombre)")
+      .eq("idUsuario", userId)
+      .single();
+    if (error || !data) throw new Error("Tu usuario está autenticado, pero no tiene un perfil académico asignado.");
+    const roleRow = Array.isArray((data as any).tbRol) ? (data as any).tbRol[0] : (data as any).tbRol;
+    const role: Role = roleRow?.nombre === "Administrador" ? "admin" : "teacher";
+    setUser({
+      id: data.idUsuario,
+      name: data.nombreCompleto,
+      email: data.correoElectronico,
+      avatar: data.inicialesAvatar ?? data.nombreCompleto.split(" ").map((part: string) => part[0]).join("").slice(0, 2).toUpperCase(),
+      role,
+    });
+  }
+
+  async function handleLogin(email: string, password: string) {
+    if (!supabase) throw new Error("Configura Supabase en .env.local antes de iniciar sesión.");
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data.user) throw new Error(error?.message ?? "Credenciales inválidas.");
+    try {
+      await loadAuthenticatedUser(data.user.id);
+      await refreshData();
+    } catch (profileError) {
+      await supabase.auth.signOut();
+      throw profileError;
+    }
+  }
+
+  useEffect(() => {
+    if (!supabase) { setLoading(false); return; }
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { setLoading(false); return; }
+      try {
+        await loadAuthenticatedUser(session.user.id);
+        await refreshData();
+      } catch (error) {
+        setConnectionError(error instanceof Error ? error.message : "No fue posible restaurar la sesión.");
+        await supabase.auth.signOut();
+      } finally {
+        setLoading(false);
+      }
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) setUser(null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">Cargando sesión y datos…</div>;
+  }
   if (!user) {
-    return <LoginScreen onLogin={setUser} />;
+    return <LoginScreen onLogin={handleLogin} />;
   }
 
   const selectedCourse = courses.find(c => c.id === selectedCourseId) ?? null;
@@ -1354,7 +1720,7 @@ export default function App() {
     if (v !== "course-detail") setSelectedCourseId(null);
   }
 
-  function handleSelectCourse(id: number) {
+  function handleSelectCourse(id: Id) {
     setSelectedCourseId(id);
     setView("course-detail");
   }
@@ -1383,34 +1749,40 @@ export default function App() {
               <span className="text-foreground font-medium hidden sm:block">{user.name}</span>
               <span className="text-xs px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">{user.role === "admin" ? "Admin" : "Docente"}</span>
             </div>
-            <button onClick={() => { setUser(null); setView("dashboard"); }} className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded hover:bg-secondary" title="Cerrar sesión">
+            <button onClick={async () => { await supabase?.auth.signOut(); setUser(null); setView("dashboard"); }} className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded hover:bg-secondary" title="Cerrar sesión">
               <LogOut className="w-4 h-4" />
             </button>
           </div>
         </header>
 
         <main className="flex-1 overflow-y-auto">
+          {connectionError && (
+            <div className="mx-8 mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              Error al sincronizar con Supabase: {connectionError}
+            </div>
+          )}
           {view === "dashboard" && (
             <Dashboard user={user} courses={courses} students={students} teachers={teachers} trimesters={trimesters} onNavigate={handleNavigate} />
           )}
           {view === "courses" && (
-            <CoursesView user={user} courses={courses} setCourses={setCourses} teachers={teachers} students={students} trimesters={trimesters} setTrimesters={setTrimesters} onSelectCourse={handleSelectCourse} />
+            <CoursesView user={user} courses={courses} setCourses={setCourses} teachers={teachers} setTeachers={setTeachers} students={students} trimesters={trimesters} setTrimesters={setTrimesters} activities={activities} setActivities={setActivities} onSelectCourse={handleSelectCourse} onRefresh={refreshData} />
           )}
           {view === "course-detail" && selectedCourse && (
             <CourseDetail
-              user={user} course={selectedCourse} teachers={teachers}
+              user={user} course={selectedCourse} courses={courses} setCourses={setCourses} teachers={teachers} setTeachers={setTeachers}
               students={students} setStudents={setStudents}
               trimesters={trimesters} setTrimesters={setTrimesters}
-              activities={activities} setActivities={setActivities}
+              activities={activities}
               grades={grades} setGrades={setGrades}
               onBack={() => handleNavigate("courses")}
+              onRefresh={refreshData}
             />
           )}
           {view === "students" && (
-            <StudentsView user={user} students={students} setStudents={setStudents} courses={courses} teachers={teachers} />
+            <StudentsView user={user} students={students} setStudents={setStudents} courses={courses} teachers={teachers} onRefresh={refreshData} />
           )}
           {view === "users" && user.role === "admin" && (
-            <UsersView teachers={teachers} setTeachers={setTeachers} courses={courses} />
+            <UsersView teachers={teachers} setTeachers={setTeachers} courses={courses} onRefresh={refreshData} />
           )}
           {view === "grades" && (
             <GradesView user={user} courses={courses} students={students} teachers={teachers} trimesters={trimesters} activities={activities} grades={grades} />

@@ -1,0 +1,67 @@
+@startuml
+title PENTHA - Diagrama de Flujo de Datos (Nivel 1)
+left to right direction
+skinparam shadowing false
+skinparam rectangle {
+  RoundCorner 12
+}
+
+actor "Administrador" as admin
+actor "Docente" as teacher
+
+rectangle "P1. Autenticación\ny control de acceso" as p1
+rectangle "P2. Administración\nacadémica" as p2
+rectangle "P3. Registro de\ncalificaciones" as p3
+rectangle "P4. Consulta de\nresultados" as p4
+
+database "D1. Usuarios, roles\ny docentes" as d1
+database "D2. Estudiantes\ne inscripciones" as d2
+database "D3. Cursos\ny trimestres" as d3
+database "D4. Actividades fijas\ny calificaciones" as d4
+
+admin --> p1 : credenciales
+teacher --> p1 : credenciales
+p1 --> d1 : consultar usuario y rol
+d1 --> p1 : identidad y permisos
+p1 --> admin : sesión de administrador
+p1 --> teacher : sesión de docente
+
+admin --> p2 : crear estudiante, inscribirlo,\ncrear curso o asignar docente
+p2 --> d1 : consultar / actualizar docente
+p2 --> d2 : registrar estudiante\ny su inscripción
+p2 --> d3 : registrar curso\ny trimestres
+d1 --> p2 : docentes disponibles
+d2 --> p2 : estudiantes e inscripciones
+d3 --> p2 : cursos y trimestres
+p2 --> admin : confirmación y datos actualizados
+
+teacher --> p3 : seleccionar curso, trimestre\ny actividad; notas o NP
+admin --> p3 : consultar o corregir notas autorizadas
+p3 --> d2 : validar inscripción del estudiante
+p3 --> d3 : validar curso y trimestre
+p3 --> d4 : consultar actividad fija\ny guardar calificación
+d2 --> p3 : inscripción válida
+d3 --> p3 : trimestre válido / abierto
+d4 --> p3 : máximo de puntos\ny notas previas
+p3 --> teacher : confirmación de registro
+p3 --> admin : confirmación de registro
+
+admin --> p4 : solicitar resumen de curso
+teacher --> p4 : solicitar resumen de sus cursos
+p4 --> d2 : obtener estudiantes inscritos
+p4 --> d3 : obtener curso y trimestres
+p4 --> d4 : obtener calificaciones
+d2 --> p4 : estudiantes
+d3 --> p4 : estructura académica
+d4 --> p4 : puntos y estado NP
+p4 --> admin : promedios y estado final
+p4 --> teacher : promedios y estado final
+
+note bottom of p3
+Las actividades son fijas:
+30 parcial, 30 final, 10 verbal,
+20 presentación y 10 portafolio.
+NP equivale a 0 puntos y se conserva
+como estado "noPresento".
+end note
+@enduml
