@@ -82,6 +82,26 @@ type View =
 
 type FeedbackType = "success" | "error";
 
+const NAME_PATTERN = /^[\p{L}]+(?:[\p{L}\s'-]*[\p{L}])?$/u;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateName(value: string, label = "El nombre") {
+  const normalized = value.trim();
+  if (normalized.length < 2 || normalized.length > 150 || !NAME_PATTERN.test(normalized)) {
+    return `${label} debe contener únicamente letras y espacios.`;
+  }
+  return "";
+}
+
+function validateEmail(value: string) {
+  return EMAIL_PATTERN.test(value.trim()) ? "" : "Ingresa un correo electrónico válido.";
+}
+
+function validatePhone(value: string) {
+  if (!value) return "";
+  return /^\d{1,10}$/.test(value) ? "" : "El teléfono solo puede contener números y tener un máximo de 10 dígitos.";
+}
+
 // ── Seed Data ──────────────────────────────────────────────────────────────
 
 const SEED_TEACHERS: Teacher[] = [
@@ -426,6 +446,20 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
   const [showForm, setShowForm] = useState(false);
   const [newCourse, setNewCourse] = useState({ name: "", level: "", teacherId: "", description: "" });
 
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+
+  function openCourseForm(course?: Course) {
+    setEditingCourse(course ?? null);
+    setNewCourse(course
+      ? { name: course.name, level: course.level, teacherId: course.teacherId ? String(course.teacherId) : "", description: course.description }
+      : { name: "", level: "", teacherId: "", description: "" });
+    setShowForm(true);
+  }
+
+  function closeCourseForm() {
+    setShowForm(false);
+    setEditingCourse(null);
+  }
   const myTeacher = teachers.find(t => t.email === user.email);
   const visible = courses.filter(c => {
     if (user.role === "teacher" && myTeacher) return myTeacher.courses.includes(c.id);
@@ -439,6 +473,19 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
   async function addCourse() {
     if (!newCourse.name || !newCourse.level) {
       onNotice("error", "Completa el nombre y nivel del curso.");
+      return;
+    }
+    if (supabase && editingCourse) {
+      const { error } = await supabase.from("tbCurso").update({
+        idDocente: newCourse.teacherId || null,
+        nombre: newCourse.name.trim(),
+        nivel: newCourse.level,
+        descripcion: newCourse.description.trim() || null,
+      }).eq("idCurso", editingCourse.id);
+      if (error) { onNotice("error", error.message); return; }
+      closeCourseForm();
+      await onRefresh();
+      onNotice("success", "Curso actualizado correctamente.");
       return;
     }
     if (supabase) {
@@ -456,6 +503,15 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
       onNotice("success", "Curso creado correctamente. Se generaron sus tres trimestres.");
       return;
     }
+    if (editingCourse) {
+      setCourses(courses.map(course => course.id === editingCourse.id
+        ? { ...course, name: newCourse.name.trim(), level: newCourse.level, teacherId: newCourse.teacherId || null, description: newCourse.description.trim() }
+        : course));
+      closeCourseForm();
+      onNotice("success", "Curso actualizado correctamente.");
+      return;
+    }
+
     const id = Math.max(...courses.map(c => c.id)) + 1;
     const course: Course = {
       id, name: newCourse.name, level: newCourse.level,
@@ -492,7 +548,7 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
           <p className="text-sm text-muted-foreground mt-0.5">{visible.length} curso{visible.length !== 1 ? "s" : ""} registrado{visible.length !== 1 ? "s" : ""}</p>
         </div>
         {user.role === "admin" && (
-          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">
+          <button onClick={() => openCourseForm()} className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">
             <Plus className="w-4 h-4" /> Nuevo Curso
           </button>
         )}
@@ -524,7 +580,7 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
       {/* New course form */}
       {showForm && user.role === "admin" && (
         <div className="bg-card border border-primary/20 rounded-xl p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-foreground">Registrar Nuevo Curso</h3>
+          <h3 className="text-sm font-semibold text-foreground">{editingCourse ? "Editar Curso" : "Registrar Nuevo Curso"}</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Nombre del Curso</label>
@@ -554,8 +610,8 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
             </div>
           </div>
           <div className="flex gap-2 pt-2">
-            <button onClick={addCourse} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">Guardar</button>
-            <button onClick={() => setShowForm(false)} className="bg-secondary text-secondary-foreground rounded-lg px-4 py-2 text-sm hover:bg-secondary/80 transition-colors">Cancelar</button>
+            <button onClick={addCourse} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">{editingCourse ? "Guardar cambios" : "Guardar"}</button>
+            <button onClick={closeCourseForm} className="bg-secondary text-secondary-foreground rounded-lg px-4 py-2 text-sm hover:bg-secondary/80 transition-colors">Cancelar</button>
           </div>
         </div>
       )}
@@ -600,6 +656,9 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
                     </div>
                   </td>
                   <td className="px-5 py-3.5 text-right">
+                    {user.role === "admin" && (
+                      <button onClick={() => openCourseForm(course)} className="mr-3 text-xs text-primary hover:text-primary/80 inline-flex items-center gap-1"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                    )}
                     <button onClick={() => onSelectCourse(course.id)} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 ml-auto transition-colors">
                       <Eye className="w-3.5 h-3.5" /> Ver
                     </button>
@@ -1166,6 +1225,20 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
   const [showForm, setShowForm] = useState(false);
   const [newStudent, setNewStudent] = useState({ name: "", email: "", phone: "", courseIds: [] as Id[] });
 
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+
+  function openStudentForm(student?: Student) {
+    setEditingStudent(student ?? null);
+    setNewStudent(student
+      ? { name: student.name, email: student.email, phone: student.phone, courseIds: student.enrolledCourses }
+      : { name: "", email: "", phone: "", courseIds: [] });
+    setShowForm(true);
+  }
+
+  function closeStudentForm() {
+    setShowForm(false);
+    setEditingStudent(null);
+  }
   const myTeacher = teachers.find(t => t.email === user.email);
   const myCourseIds = myTeacher?.courses ?? [];
 
@@ -1179,10 +1252,30 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
   });
 
   async function addStudent() {
+    const nameError = validateName(newStudent.name, "El nombre completo");
+    const emailError = validateEmail(newStudent.email);
+    const phoneError = validatePhone(newStudent.phone);
+    if (nameError || emailError || phoneError) {
+      onNotice("error", nameError || emailError || phoneError);
+      return;
+    }
     if (!newStudent.name || !newStudent.email) {
       onNotice("error", "Completa el nombre y correo electrónico del estudiante.");
       return;
     }
+    if (supabase && editingStudent) {
+      const { error } = await supabase.from("tbEstudiante").update({
+        nombreCompleto: newStudent.name.trim(),
+        correoElectronico: newStudent.email.trim(),
+        telefono: newStudent.phone || null,
+      }).eq("idEstudiante", editingStudent.id);
+      if (error) { onNotice("error", error.message); return; }
+      closeStudentForm();
+      await onRefresh();
+      onNotice("success", "Estudiante actualizado correctamente.");
+      return;
+    }
+
     if (supabase) {
       const { data, error } = await supabase.from("tbEstudiante").insert({
         nombreCompleto: newStudent.name,
@@ -1202,6 +1295,15 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
       onNotice("success", "Estudiante registrado correctamente.");
       return;
     }
+    if (editingStudent) {
+      setStudents(students.map(student => student.id === editingStudent.id
+        ? { ...student, name: newStudent.name.trim(), email: newStudent.email.trim(), phone: newStudent.phone }
+        : student));
+      closeStudentForm();
+      onNotice("success", "Estudiante actualizado correctamente.");
+      return;
+    }
+
     const id = Math.max(...students.map(s => s.id)) + 1;
     setStudents([...students, { id, name: newStudent.name, email: newStudent.email, phone: newStudent.phone, enrolledCourses: newStudent.courseIds }]);
     setNewStudent({ name: "", email: "", phone: "", courseIds: [] });
@@ -1216,7 +1318,7 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
           <p className="text-sm text-muted-foreground mt-0.5">{visible.length} estudiante{visible.length !== 1 ? "s" : ""}</p>
         </div>
         {user.role === "admin" && (
-          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">
+          <button onClick={() => openStudentForm()} className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">
             <Plus className="w-4 h-4" /> Nuevo Estudiante
           </button>
         )}
@@ -1234,7 +1336,7 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
 
       {showForm && user.role === "admin" && (
         <div className="bg-card border border-primary/20 rounded-xl p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-foreground">Registrar Estudiante</h3>
+          <h3 className="text-sm font-semibold text-foreground">{editingStudent ? "Editar Estudiante" : "Registrar Estudiante"}</h3>
           <div className="grid grid-cols-3 gap-4">
             {[
               { key: "name", label: "Nombre Completo", placeholder: "Ej. María Rodríguez" },
@@ -1245,15 +1347,23 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
                 <label className="block text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">{f.label}</label>
                 <input
                   value={(newStudent as any)[f.key]}
-                  onChange={e => setNewStudent({ ...newStudent, [f.key]: e.target.value })}
+                  onChange={e => {
+                    const value = f.key === "name" ? e.target.value.replace(/[^\p{L}\s'-]/gu, "")
+                      : f.key === "phone" ? e.target.value.replace(/\D/g, "").slice(0, 10)
+                        : e.target.value;
+                    setNewStudent({ ...newStudent, [f.key]: value });
+                  }}
                   className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+                  type={f.key === "email" ? "email" : "text"}
+                  inputMode={f.key === "phone" ? "numeric" : undefined}
+                  maxLength={f.key === "phone" ? 10 : undefined}
                   placeholder={f.placeholder}
                 />
               </div>
             ))}
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-2 uppercase tracking-wider">Inscribir en cursos</label>
+            <label className="block text-xs text-muted-foreground mb-2 uppercase tracking-wider">{editingStudent ? "Inscripciones (se gestionan desde el curso)" : "Inscribir en cursos"}</label>
             <div className="flex flex-wrap gap-2">
               {courses.map(course => {
                 const selected = newStudent.courseIds.includes(course.id);
@@ -1261,13 +1371,14 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
                   <button
                     key={course.id}
                     type="button"
+                    disabled={!!editingStudent}
                     onClick={() => setNewStudent({
                       ...newStudent,
                       courseIds: selected
                         ? newStudent.courseIds.filter(id => id !== course.id)
                         : [...newStudent.courseIds, course.id],
                     })}
-                    className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border hover:border-primary/50"}`}
+                    className={`text-xs px-3 py-1.5 rounded-full border transition-colors disabled:opacity-50 ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border hover:border-primary/50"}`}
                   >
                     {selected ? "✓ " : ""}{course.name} · {course.level}
                   </button>
@@ -1276,8 +1387,8 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
             </div>
           </div>
           <div className="flex gap-2 pt-2">
-            <button onClick={addStudent} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">Guardar</button>
-            <button onClick={() => setShowForm(false)} className="bg-secondary text-secondary-foreground rounded-lg px-4 py-2 text-sm hover:bg-secondary/80 transition-colors">Cancelar</button>
+            <button onClick={addStudent} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">{editingStudent ? "Guardar cambios" : "Guardar"}</button>
+            <button onClick={closeStudentForm} className="bg-secondary text-secondary-foreground rounded-lg px-4 py-2 text-sm hover:bg-secondary/80 transition-colors">Cancelar</button>
           </div>
         </div>
       )}
@@ -1289,6 +1400,7 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
               <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Estudiante</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Contacto</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Cursos Inscritos</th>
+              <th className="px-5 py-3"></th>
             </tr>
           </thead>
           <tbody>
@@ -1318,6 +1430,11 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
                       }
                     </div>
                   </td>
+                  <td className="px-5 py-3.5 text-right">
+                    {user.role === "admin" && (
+                      <button onClick={() => openStudentForm(s)} className="ml-auto flex items-center gap-1 text-xs text-primary hover:text-primary/80"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -1330,8 +1447,10 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
 
 // ── Users View ─────────────────────────────────────────────────────────────
 
-function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
+function UsersView({ currentUser, onCurrentUserUpdated, teachers, setTeachers, courses, onRefresh, onNotice }: {
   teachers: Teacher[];
+  currentUser: User;
+  onCurrentUserUpdated: (user: User) => void;
   setTeachers: (t: Teacher[]) => void;
   courses: Course[];
   onRefresh: () => Promise<void>;
@@ -1340,10 +1459,46 @@ function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
   const [showForm, setShowForm] = useState(false);
   const [newTeacher, setNewTeacher] = useState({ name: "", email: "", password: "" });
 
-  const ADMINS = [{ id: 1, name: "Ana García", email: "admin@academy.com", role: "admin" }];
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
+  const [editingAdmin, setEditingAdmin] = useState(false);
+  const [adminForm, setAdminForm] = useState({ name: currentUser.name, email: currentUser.email });
+
+  function openTeacherForm(teacher?: Teacher) {
+    setEditingAdmin(false);
+    setEditingTeacher(teacher ?? null);
+    setNewTeacher(teacher ? { name: teacher.name, email: teacher.email, password: "" } : { name: "", email: "", password: "" });
+    setShowForm(true);
+  }
+
+  function closeForms() {
+    setShowForm(false);
+    setEditingTeacher(null);
+    setEditingAdmin(false);
+  }
+
+  const ADMINS = [currentUser];
 
   async function addTeacher() {
-    if (!newTeacher.name || !newTeacher.email || (supabase && newTeacher.password.length < 8)) {
+    const nameError = validateName(newTeacher.name, "El nombre del docente");
+    const emailError = validateEmail(newTeacher.email);
+    if (nameError || emailError) {
+      onNotice("error", nameError || emailError);
+      return;
+    }
+    if (editingTeacher) {
+      if (supabase) {
+        const { error } = await supabase.functions.invoke("admin-update-user", { body: { idUsuario: editingTeacher.id, nombreCompleto: newTeacher.name.trim(), correoElectronico: newTeacher.email.trim() } });
+        if (error) { onNotice("error", error.message); return; }
+        await onRefresh();
+      } else {
+        setTeachers(teachers.map(teacher => teacher.id === editingTeacher.id ? { ...teacher, name: newTeacher.name.trim(), email: newTeacher.email.trim() } : teacher));
+      }
+      closeForms();
+      onNotice("success", "Docente actualizado correctamente.");
+      return;
+    }
+
+    if (!newTeacher.name || !newTeacher.email || (supabase && !editingTeacher && newTeacher.password.length < 8)) {
       onNotice("error", "Completa nombre y correo; la contraseña temporal debe tener al menos 8 caracteres.");
       return;
     }
@@ -1364,6 +1519,19 @@ function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
     setShowForm(false);
   }
 
+  async function saveAdminProfile() {
+    const nameError = validateName(adminForm.name, "El nombre");
+    const emailError = validateEmail(adminForm.email);
+    if (nameError || emailError) { onNotice("error", nameError || emailError); return; }
+    if (supabase) {
+      const { error } = await supabase.functions.invoke("admin-update-user", { body: { idUsuario: currentUser.id, nombreCompleto: adminForm.name.trim(), correoElectronico: adminForm.email.trim() } });
+      if (error) { onNotice("error", error.message); return; }
+      await onRefresh();
+    }
+    onCurrentUserUpdated({ ...currentUser, name: adminForm.name.trim(), email: adminForm.email.trim(), avatar: adminForm.name.trim().split(" ").map(part => part[0]).join("").slice(0, 2).toUpperCase() });
+    setEditingAdmin(false);
+    onNotice("success", "Usuario administrador actualizado correctamente.");
+  }
   return (
     <div className="p-8 space-y-8 max-w-5xl">
       <div>
@@ -1388,11 +1556,21 @@ function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
                   <p className="text-xs text-muted-foreground">{a.email}</p>
                 </div>
               </div>
-              <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">Administrador</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">Administrador</span>
+                <button onClick={() => { setAdminForm({ name: currentUser.name, email: currentUser.email }); setEditingAdmin(true); }} className="text-xs text-primary inline-flex items-center gap-1 hover:text-primary/80"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+              </div>
             </div>
           ))}
         </div>
       </section>
+        {editingAdmin && (
+          <div className="mt-4 bg-card border border-primary/20 rounded-xl p-5 grid grid-cols-3 gap-4 items-end">
+            <div><label className="block text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Nombre</label><input value={adminForm.name} onChange={e => setAdminForm({ ...adminForm, name: e.target.value.replace(/[^\p{L}\s'-]/gu, "") })} className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label className="block text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Correo</label><input type="email" value={adminForm.email} onChange={e => setAdminForm({ ...adminForm, email: e.target.value })} className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm" /></div>
+            <div className="flex gap-2"><button onClick={saveAdminProfile} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium">Guardar cambios</button><button onClick={() => setEditingAdmin(false)} className="bg-secondary rounded-lg px-4 py-2 text-sm">Cancelar</button></div>
+          </div>
+        )}
 
       {/* Teachers */}
       <section>
@@ -1400,7 +1578,7 @@ function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
           <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
             <GraduationCap className="w-3.5 h-3.5" /> Docentes ({teachers.length})
           </h2>
-          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors">
+          <button onClick={() => openTeacherForm()} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors">
             <Plus className="w-3.5 h-3.5" /> Agregar Docente
           </button>
         </div>
@@ -1409,7 +1587,7 @@ function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
           <div className="mb-4 bg-card border border-primary/20 rounded-xl p-5 flex gap-4 items-end">
             <div className="flex-1">
               <label className="block text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Nombre</label>
-              <input value={newTeacher.name} onChange={e => setNewTeacher({ ...newTeacher, name: e.target.value })}
+              <input value={newTeacher.name} onChange={e => setNewTeacher({ ...newTeacher, name: e.target.value.replace(/[^\p{L}\s'-]/gu, "") })}
                 className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50" placeholder="Nombre completo" />
             </div>
             <div className="flex-1">
@@ -1417,15 +1595,15 @@ function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
               <input value={newTeacher.email} onChange={e => setNewTeacher({ ...newTeacher, email: e.target.value })}
                 className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50" placeholder="docente@academy.com" />
             </div>
-            {supabase && (
+            {supabase && !editingTeacher && (
               <div className="flex-1">
                 <label className="block text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Contraseña temporal</label>
                 <input type="password" value={newTeacher.password} onChange={e => setNewTeacher({ ...newTeacher, password: e.target.value })}
                   className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50" placeholder="Mínimo 8 caracteres" />
               </div>
             )}
-            <button onClick={addTeacher} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium flex-shrink-0">Guardar</button>
-            <button onClick={() => setShowForm(false)} className="text-muted-foreground text-sm flex-shrink-0">✕</button>
+            <button onClick={addTeacher} className="bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium flex-shrink-0">{editingTeacher ? "Guardar cambios" : "Guardar"}</button>
+            <button onClick={closeForms} className="text-muted-foreground text-sm flex-shrink-0">✕</button>
           </div>
         )}
 
@@ -1435,6 +1613,7 @@ function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
               <tr className="border-b border-border">
                 <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Docente</th>
                 <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Cursos Asignados</th>
+                <th className="px-5 py-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -1462,6 +1641,9 @@ function UsersView({ teachers, setTeachers, courses, onRefresh, onNotice }: {
                           : <span className="text-xs text-muted-foreground italic">Sin cursos asignados</span>
                         }
                       </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-right">
+                      <button onClick={() => openTeacherForm(t)} className="ml-auto flex items-center gap-1 text-xs text-primary hover:text-primary/80"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
                     </td>
                   </tr>
                 );
@@ -1697,6 +1879,12 @@ export default function App() {
     setFeedback({ type, message });
   }
 
+
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
   async function loadAuthenticatedUser(userId: string) {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -1807,7 +1995,6 @@ export default function App() {
           {feedback && (
             <div className={`mx-8 mt-6 flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${feedback.type === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"}`}>
               <span>{feedback.type === "error" ? "Error: " : "Confirmación: "}{feedback.message}</span>
-              <button onClick={() => setFeedback(null)} className="font-medium hover:opacity-70" aria-label="Cerrar mensaje">✕</button>
             </div>
           )}
           {view === "dashboard" && (
@@ -1832,7 +2019,7 @@ export default function App() {
             <StudentsView user={user} students={students} setStudents={setStudents} courses={courses} teachers={teachers} onRefresh={refreshData} onNotice={showNotice} />
           )}
           {view === "users" && user.role === "admin" && (
-            <UsersView teachers={teachers} setTeachers={setTeachers} courses={courses} onRefresh={refreshData} onNotice={showNotice} />
+            <UsersView currentUser={user} onCurrentUserUpdated={setUser} teachers={teachers} setTeachers={setTeachers} courses={courses} onRefresh={refreshData} onNotice={showNotice} />
           )}
           {view === "grades" && (
             <GradesView user={user} courses={courses} students={students} teachers={teachers} trimesters={trimesters} activities={activities} grades={grades} />

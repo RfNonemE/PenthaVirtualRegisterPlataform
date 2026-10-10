@@ -45,6 +45,7 @@ npm install -g supabase
 supabase login
 supabase link --project-ref TU_PROJECT_REF
 supabase functions deploy admin-create-user
+supabase functions deploy admin-update-user
 ```
 
 La función utiliza automáticamente `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` disponibles en el entorno de Edge Functions. No copies la clave `service_role` al navegador, al archivo `.env.local` ni a Vercel.
