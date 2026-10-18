@@ -102,7 +102,55 @@ function validatePhone(value: string) {
   return /^\d{1,10}$/.test(value) ? "" : "El teléfono solo puede contener números y tener un máximo de 10 dígitos.";
 }
 
+async function getFunctionErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && "context" in error && error.context instanceof Response) {
+    const response = error.context;
+    let body: unknown;
+    try {
+      body = await response.clone().json();
+    } catch {
+      body = null;
+    }
+
+    if (typeof body === "object" && body !== null) {
+      const details = body as { error?: unknown; message?: unknown };
+      if (typeof details.error === "string") return details.error;
+      if (typeof details.message === "string") return details.message;
+    }
+    if (response.status === 404) {
+      return "La función de eliminación no está disponible en Supabase. Despliégala con «supabase functions deploy admin-delete-entity».";
+    }
+    return `${fallback} (HTTP ${response.status}). ${error.message}`;
+  }
+
+  return error instanceof Error ? error.message : fallback;
+}
+
 // ── Seed Data ──────────────────────────────────────────────────────────────
+function ConfirmDeleteDialog({ title, description, onConfirm, onCancel, deleting }: {
+  title: string;
+  description: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  deleting: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description delete-dialog-warning">
+      <div className="w-full max-w-md rounded-xl border border-red-200 bg-card p-6 shadow-xl">
+        <h2 id="delete-dialog-title" className="text-base font-semibold text-foreground">{title}</h2>
+        <p id="delete-dialog-description" className="mt-2 text-sm text-muted-foreground">{description}</p>
+        <p id="delete-dialog-warning" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Si este elemento tiene información registrada o asociada, como inscripciones, trimestres o calificaciones, podría perderse al eliminarlo. Esta acción no se puede deshacer.</p>
+        <div className="mt-5 flex justify-end gap-3">
+          <button type="button" onClick={onCancel} disabled={deleting} className="rounded-lg bg-secondary px-4 py-2 text-sm text-secondary-foreground disabled:opacity-50">Cancelar</button>
+          <button type="button" onClick={onConfirm} disabled={deleting} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
+            {deleting ? "Eliminando…" : "Sí, eliminar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 const SEED_TEACHERS: Teacher[] = [
   { id: 1, name: "Andrea Solano", email: "asolano@academy.com", courses: [1, 2] },
@@ -426,10 +474,12 @@ function Dashboard({ user, courses, students, teachers, trimesters, onNavigate }
 
 // ── Courses View ───────────────────────────────────────────────────────────
 
-function CoursesView({ user, courses, setCourses, teachers, setTeachers, students, trimesters, setTrimesters, activities, setActivities, onSelectCourse, onRefresh, onNotice }: {
+function CoursesView({ user, courses, setCourses, grades, setGrades, teachers, setTeachers, students, trimesters, setTrimesters, activities, setActivities, onSelectCourse, onRefresh, onNotice }: {
   user: User;
   courses: Course[];
   setCourses: (c: Course[]) => void;
+  grades: Grade[];
+  setGrades: (g: Grade[]) => void;
   teachers: Teacher[];
   setTeachers: (t: Teacher[]) => void;
   students: Student[];
@@ -448,6 +498,8 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
 
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
 
+  const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
+  const [deletingCourse, setDeletingCourse] = useState(false);
   function openCourseForm(course?: Course) {
     setEditingCourse(course ?? null);
     setNewCourse(course
@@ -540,6 +592,33 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
     setShowForm(false);
   }
 
+  async function deleteCourse() {
+    if (!courseToDelete) return;
+    setDeletingCourse(true);
+    try {
+      if (supabase) {
+        const { error } = await supabase.functions.invoke("admin-delete-entity", { body: { entity: "course", id: courseToDelete.id } });
+        if (error) throw error;
+        await onRefresh();
+      } else {
+        const deletedId = courseToDelete.id;
+        const deletedTrimesterIds = trimesters.filter(trimester => trimester.courseId === deletedId).map(trimester => trimester.id);
+        setCourses(courses.filter(course => course.id !== deletedId));
+        setStudents(students.map(student => ({ ...student, enrolledCourses: student.enrolledCourses.filter(courseId => courseId !== deletedId) })));
+        setTeachers(teachers.map(teacher => ({ ...teacher, courses: teacher.courses.filter(courseId => courseId !== deletedId) })));
+        setTrimesters(trimesters.filter(trimester => trimester.courseId !== deletedId));
+        setActivities(activities.filter(activity => !deletedTrimesterIds.includes(activity.trimesterId)));
+        setGrades(grades.filter(grade => !deletedTrimesterIds.includes(grade.trimesterId ?? "")));
+      }
+      setCourseToDelete(null);
+      onNotice("success", "Curso eliminado correctamente.");
+    } catch (error) {
+      onNotice("error", await getFunctionErrorMessage(error, "No fue posible eliminar el curso."));
+    } finally {
+      setDeletingCourse(false);
+    }
+  }
+
   return (
     <div className="p-8 space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
@@ -617,6 +696,15 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
       )}
 
       {/* Course table */}
+      {courseToDelete && (
+        <ConfirmDeleteDialog
+          title={`¿Eliminar el curso ${courseToDelete.name}?`}
+          description={`El curso tiene ${students.filter(student => student.enrolledCourses.includes(courseToDelete.id)).length} estudiante(s) inscrito(s). Confirma únicamente si deseas continuar.`}
+          onConfirm={deleteCourse}
+          onCancel={() => setCourseToDelete(null)}
+          deleting={deletingCourse}
+        />
+      )}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <table className="w-full">
           <thead>
@@ -657,7 +745,10 @@ function CoursesView({ user, courses, setCourses, teachers, setTeachers, student
                   </td>
                   <td className="px-5 py-3.5 text-right">
                     {user.role === "admin" && (
-                      <button onClick={() => openCourseForm(course)} className="mr-3 text-xs text-primary hover:text-primary/80 inline-flex items-center gap-1"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                      <>
+                        <button onClick={() => openCourseForm(course)} className="mr-3 text-xs text-primary hover:text-primary/80 inline-flex items-center gap-1"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                      <button onClick={() => setCourseToDelete(course)} className="mr-3 text-xs text-red-600 hover:text-red-700 inline-flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> Eliminar</button>
+                      </>
                     )}
                     <button onClick={() => onSelectCourse(course.id)} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 ml-auto transition-colors">
                       <Eye className="w-3.5 h-3.5" /> Ver
@@ -1212,10 +1303,12 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
 
 // ── Students View ──────────────────────────────────────────────────────────
 
-function StudentsView({ user, students, setStudents, courses, teachers, onRefresh, onNotice }: {
+function StudentsView({ user, students, setStudents, grades, setGrades, courses, teachers, onRefresh, onNotice }: {
   user: User;
   students: Student[];
   setStudents: (s: Student[]) => void;
+  grades: Grade[];
+  setGrades: (g: Grade[]) => void;
   courses: Course[];
   teachers: Teacher[];
   onRefresh: () => Promise<void>;
@@ -1226,6 +1319,8 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
   const [newStudent, setNewStudent] = useState({ name: "", email: "", phone: "", courseIds: [] as Id[] });
 
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [deletingStudent, setDeletingStudent] = useState(false);
 
   function openStudentForm(student?: Student) {
     setEditingStudent(student ?? null);
@@ -1308,6 +1403,27 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
     setStudents([...students, { id, name: newStudent.name, email: newStudent.email, phone: newStudent.phone, enrolledCourses: newStudent.courseIds }]);
     setNewStudent({ name: "", email: "", phone: "", courseIds: [] });
     setShowForm(false);
+  }
+
+  async function deleteStudent() {
+    if (!studentToDelete) return;
+    setDeletingStudent(true);
+    try {
+      if (supabase) {
+        const { error } = await supabase.functions.invoke("admin-delete-entity", { body: { entity: "student", id: studentToDelete.id } });
+        if (error) throw error;
+        await onRefresh();
+      } else {
+        setStudents(students.filter(student => student.id !== studentToDelete.id));
+        setGrades(grades.filter(grade => grade.studentId !== studentToDelete.id));
+      }
+      setStudentToDelete(null);
+      onNotice("success", "Estudiante eliminado correctamente.");
+    } catch (error) {
+      onNotice("error", await getFunctionErrorMessage(error, "No fue posible eliminar el estudiante."));
+    } finally {
+      setDeletingStudent(false);
+    }
   }
 
   return (
@@ -1393,6 +1509,15 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
         </div>
       )}
 
+      {studentToDelete && (
+        <ConfirmDeleteDialog
+          title={`¿Eliminar a ${studentToDelete.name}?`}
+          description={`El estudiante está inscrito en ${studentToDelete.enrolledCourses.length} curso(s). Confirma únicamente si deseas continuar.`}
+          onConfirm={deleteStudent}
+          onCancel={() => setStudentToDelete(null)}
+          deleting={deletingStudent}
+        />
+      )}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <table className="w-full">
           <thead>
@@ -1432,7 +1557,10 @@ function StudentsView({ user, students, setStudents, courses, teachers, onRefres
                   </td>
                   <td className="px-5 py-3.5 text-right">
                     {user.role === "admin" && (
-                      <button onClick={() => openStudentForm(s)} className="ml-auto flex items-center gap-1 text-xs text-primary hover:text-primary/80"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                      <div className="ml-auto flex justify-end gap-3">
+                        <button onClick={() => openStudentForm(s)} className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                        <button onClick={() => setStudentToDelete(s)} className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700"><Trash2 className="w-3.5 h-3.5" /> Eliminar</button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -2001,7 +2129,7 @@ export default function App() {
             <Dashboard user={user} courses={courses} students={students} teachers={teachers} trimesters={trimesters} onNavigate={handleNavigate} />
           )}
           {view === "courses" && (
-            <CoursesView user={user} courses={courses} setCourses={setCourses} teachers={teachers} setTeachers={setTeachers} students={students} trimesters={trimesters} setTrimesters={setTrimesters} activities={activities} setActivities={setActivities} onSelectCourse={handleSelectCourse} onRefresh={refreshData} onNotice={showNotice} />
+            <CoursesView user={user} courses={courses} setCourses={setCourses} grades={grades} setGrades={setGrades} teachers={teachers} setTeachers={setTeachers} students={students} trimesters={trimesters} setTrimesters={setTrimesters} activities={activities} setActivities={setActivities} onSelectCourse={handleSelectCourse} onRefresh={refreshData} onNotice={showNotice} />
           )}
           {view === "course-detail" && selectedCourse && (
             <CourseDetail
@@ -2016,7 +2144,7 @@ export default function App() {
             />
           )}
           {view === "students" && (
-            <StudentsView user={user} students={students} setStudents={setStudents} courses={courses} teachers={teachers} onRefresh={refreshData} onNotice={showNotice} />
+            <StudentsView user={user} students={students} setStudents={setStudents} grades={grades} setGrades={setGrades} courses={courses} teachers={teachers} onRefresh={refreshData} onNotice={showNotice} />
           )}
           {view === "users" && user.role === "admin" && (
             <UsersView currentUser={user} onCurrentUserUpdated={setUser} teachers={teachers} setTeachers={setTeachers} courses={courses} onRefresh={refreshData} onNotice={showNotice} />

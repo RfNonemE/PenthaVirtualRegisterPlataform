@@ -46,9 +46,10 @@ supabase login
 supabase link --project-ref TU_PROJECT_REF
 supabase functions deploy admin-create-user
 supabase functions deploy admin-update-user
+supabase functions deploy admin-delete-entity
 ```
 
-La función utiliza automáticamente `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` disponibles en el entorno de Edge Functions. No copies la clave `service_role` al navegador, al archivo `.env.local` ni a Vercel.
+Las funciones utilizan automáticamente `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` disponibles en el entorno de Edge Functions. La función `admin-delete-entity` permite que un administrador elimine cursos o estudiantes junto con sus inscripciones y calificaciones asociadas, y admite identificadores numéricos o UUID. No copies la clave `service_role` al navegador, al archivo `.env.local` ni a Vercel.
 x
 ## 5. Configurar la aplicación React
 
