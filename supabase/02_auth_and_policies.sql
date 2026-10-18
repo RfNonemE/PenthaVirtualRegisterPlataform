@@ -80,6 +80,13 @@ using (
       and public."fnPuedeVerCurso"(inscripcion."idCurso")
   )
 );
+drop policy if exists "usuariosConsultanInscripcionesAutorizadas" on public."tbInscripcion";
+
+create policy "usuariosConsultanInscripcionesAutorizadas"
+on public."tbInscripcion"
+for select to authenticated
+using (public."fnPuedeVerCurso"("idCurso"));
+
 
 drop policy if exists "usuariosConsultanCalificacionesAutorizadas" on public."tbCalificacion";
 

@@ -841,6 +841,10 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
 
   function openBulkGradeEntry(activityId: Id) {
     const values: Record<string, string> = {};
+    if (enrolled.length === 0) {
+      onNotice("error", "No hay estudiantes inscritos en este curso. Inscribe al menos un estudiante antes de ingresar calificaciones.");
+      return;
+    }
     enrolled.forEach(student => {
       const grade = grades.find(g => g.studentId === student.id && g.activityId === activityId);
       values[String(student.id)] = grade?.status === "not_present" ? "NP" : grade ? String(grade.score) : "";
