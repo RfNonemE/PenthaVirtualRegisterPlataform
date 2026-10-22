@@ -255,7 +255,11 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
         {/* Logo */}
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 mb-4">
-            <BookOpen className="w-8 h-8 text-primary" />
+            <img
+              src="/logopentha.png"
+              alt="Logo de PENTHA"
+              className="h-full w-full object-contain"
+            />
           </div>
           <h1 className="text-2xl font-semibold text-foreground tracking-tight">PENTHA</h1>
           <p className="text-muted-foreground text-sm mt-1">Virtual Register Platform</p>
@@ -332,7 +336,11 @@ function Sidebar({
       {/* Header */}
       <div className="flex items-center h-14 px-4 border-b border-border gap-3">
         <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
-          <BookOpen className="w-4 h-4 text-primary" />
+            <img
+              src="/logopentha.png"
+              alt="Logo de PENTHA"
+              className="h-full w-full object-contain"
+            />
         </div>
         {!collapsed && <span className="text-sm font-semibold text-foreground truncate">PENTHA</span>}
         <button onClick={onToggle} className="ml-auto text-muted-foreground hover:text-foreground transition-colors p-1 rounded">
@@ -746,12 +754,11 @@ function CoursesView({ user, courses, setCourses, grades, setGrades, teachers, s
                   <td className="px-5 py-3.5 text-right">
                     {user.role === "admin" && (
                       <>
-                        <button onClick={() => openCourseForm(course)} className="mr-3 text-xs text-primary hover:text-primary/80 inline-flex items-center gap-1"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
-                      <button onClick={() => setCourseToDelete(course)} className="mr-3 text-xs text-red-600 hover:text-red-700 inline-flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> Eliminar</button>
+                        <button onClick={() => openCourseForm(course)} title="Editar curso" className="mr-2 inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-foreground"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                      <button onClick={() => setCourseToDelete(course)} title="Eliminar curso" className="mr-2 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-red-600 hover:text-white"><Trash2 className="w-3.5 h-3.5" /> Eliminar</button>
                       </>
                     )}
-                    <button onClick={() => onSelectCourse(course.id)} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 ml-auto transition-colors">
-                      <Eye className="w-3.5 h-3.5" /> Ver
+                    <button onClick={() => onSelectCourse(course.id)} title="Ver curso" className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs font-semibold text-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-foreground"><Eye className="w-3.5 h-3.5" /> Ver
                     </button>
                   </td>
                 </tr>
@@ -1562,8 +1569,8 @@ function StudentsView({ user, students, setStudents, grades, setGrades, courses,
                   <td className="px-5 py-3.5 text-right">
                     {user.role === "admin" && (
                       <div className="ml-auto flex justify-end gap-3">
-                        <button onClick={() => openStudentForm(s)} className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
-                        <button onClick={() => setStudentToDelete(s)} className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700"><Trash2 className="w-3.5 h-3.5" /> Eliminar</button>
+                        <button onClick={() => openStudentForm(s)} title="Editar estudiante" className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-foreground"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                        <button onClick={() => setStudentToDelete(s)} title="Eliminar estudiante" className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-red-600 hover:text-white"><Trash2 className="w-3.5 h-3.5" /> Eliminar</button>
                       </div>
                     )}
                   </td>
@@ -1690,7 +1697,7 @@ function UsersView({ currentUser, onCurrentUserUpdated, teachers, setTeachers, c
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">Administrador</span>
-                <button onClick={() => { setAdminForm({ name: currentUser.name, email: currentUser.email }); setEditingAdmin(true); }} className="text-xs text-primary inline-flex items-center gap-1 hover:text-primary/80"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                <button onClick={() => { setAdminForm({ name: currentUser.name, email: currentUser.email }); setEditingAdmin(true); }} title="Editar usuario" className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-foreground"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
               </div>
             </div>
           ))}
@@ -1775,7 +1782,7 @@ function UsersView({ currentUser, onCurrentUserUpdated, teachers, setTeachers, c
                       </div>
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      <button onClick={() => openTeacherForm(t)} className="ml-auto flex items-center gap-1 text-xs text-primary hover:text-primary/80"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                      <button onClick={() => openTeacherForm(t)} title="Editar docente" className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-foreground"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
                     </td>
                   </tr>
                 );
