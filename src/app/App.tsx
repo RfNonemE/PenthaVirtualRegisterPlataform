@@ -2126,15 +2126,32 @@ export default function App() {
           </div>
         </header>
 
+        {feedback && (
+          <div
+            role={feedback.type === "error" ? "alert" : "status"}
+            aria-live={feedback.type === "error" ? "assertive" : "polite"}
+            className={`fixed right-4 top-20 z-[60] flex w-[calc(100vw-2rem)] max-w-md items-start justify-between gap-4 rounded-lg border px-4 py-3 text-sm shadow-lg sm:right-6 ${
+              feedback.type === "error"
+                ? "border-red-300 bg-red-50 text-red-800"
+                : "border-green-300 bg-green-50 text-green-800"
+            }`}
+          >
+            <span>{feedback.type === "error" ? "Error: " : "Confirmación: "}{feedback.message}</span>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              className="shrink-0 rounded p-0.5 opacity-70 transition-opacity hover:opacity-100"
+              aria-label="Cerrar mensaje"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         <main className="flex-1 overflow-y-auto">
           {connectionError && (
             <div className="mx-8 mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               Error al sincronizar con Supabase: {connectionError}
-            </div>
-          )}
-          {feedback && (
-            <div className={`mx-8 mt-6 flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${feedback.type === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"}`}>
-              <span>{feedback.type === "error" ? "Error: " : "Confirmación: "}{feedback.message}</span>
             </div>
           )}
           {view === "dashboard" && (
