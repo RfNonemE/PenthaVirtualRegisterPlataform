@@ -751,15 +751,16 @@ function CoursesView({ user, courses, setCourses, grades, setGrades, teachers, s
                       ))}
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-right">
-                    {user.role === "admin" && (
-                      <>
-                        <button onClick={() => openCourseForm(course)} title="Editar curso" className="mr-2 inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-foreground"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
-                      <button onClick={() => setCourseToDelete(course)} title="Eliminar curso" className="mr-2 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-red-600 hover:text-white"><Trash2 className="w-3.5 h-3.5" /> Eliminar</button>
-                      </>
-                    )}
-                    <button onClick={() => onSelectCourse(course.id)} title="Ver curso" className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs font-semibold text-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-foreground"><Eye className="w-3.5 h-3.5" /> Ver
-                    </button>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                      {user.role === "admin" && (
+                        <>
+                          <button onClick={() => openCourseForm(course)} title="Editar curso" className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-foreground"><Edit2 className="w-3.5 h-3.5" /> Editar</button>
+                          <button onClick={() => setCourseToDelete(course)} title="Eliminar curso" className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-red-600 hover:text-white"><Trash2 className="w-3.5 h-3.5" /> Eliminar</button>
+                        </>
+                      )}
+                      <button onClick={() => onSelectCourse(course.id)} title="Ver curso" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs font-semibold text-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-foreground"><Eye className="w-3.5 h-3.5" /> Ver</button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -1006,7 +1007,7 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
               <label className="block text-muted-foreground text-xs mb-1">Docente asignado</label>
               <select
                 value={course.teacherId ?? ""}
-                onChange={e => assignTeacher(e.target.value ? Number(e.target.value) : null)}
+                onChange={e => assignTeacher(teachers.find(t => String(t.id) === e.target.value)?.id ?? null)}
                 className="bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
               >
                 <option value="">Sin asignar</option>
