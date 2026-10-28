@@ -4,8 +4,14 @@ import {
   BookOpen, Users, GraduationCap, BarChart3, LogOut, Menu, X,
   Plus, Search, ChevronRight, Lock, Unlock, Edit2, Trash2,
   CheckCircle, XCircle, Clock, ChevronDown, Eye, UserPlus,
-  Award, TrendingUp, AlertCircle, Home, Shield
+  Award, TrendingUp, AlertCircle, Home, Shield, FileText, Download
 } from "lucide-react";
+import {
+  createCourseReport,
+  downloadCourseReportPdf,
+  type CourseReport,
+  type ReportPeriod,
+} from "../lib/course-reports";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -799,6 +805,8 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
   const [gradeObs, setGradeObs] = useState("");
   const [bulkActivityId, setBulkActivityId] = useState<Id | null>(null);
   const [bulkGradeValues, setBulkGradeValues] = useState<Record<string, string>>({});
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>("course");
+  const [courseReport, setCourseReport] = useState<CourseReport | null>(null);
 
   const teacher = teachers.find(t => t.id === course.teacherId);
   const enrolled = students.filter(s => s.enrolledCourses.includes(course.id));
@@ -987,6 +995,28 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
   const isOpen = activeTrimester?.status === "open";
   const canEdit = user.role === "admin" || (user.role === "teacher" && isOpen);
 
+  function showCourseReport() {
+    setCourseReport(createCourseReport({
+      course,
+      teacherName: teacher?.name ?? "Sin asignar",
+      period: reportPeriod,
+      trimesters: courseTrimesters,
+      activities,
+      grades,
+      students: enrolled,
+    }));
+  }
+
+  async function downloadReport() {
+    if (!courseReport) return;
+    try {
+      await downloadCourseReportPdf(courseReport);
+      onNotice("success", "El PDF del acta se descargó correctamente.");
+    } catch (error) {
+      onNotice("error", error instanceof Error ? error.message : "No fue posible generar el PDF del acta.");
+    }
+  }
+
   return (
     <div className="p-8 space-y-6 max-w-6xl">
       {/* Header */}
@@ -1022,6 +1052,159 @@ function CourseDetail({ user, course, courses, setCourses, teachers, setTeachers
           )}
         </div>
       </div>
+
+      {user.role === "admin" && (
+        <section className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <FileText className="h-4 w-4 text-primary" /> Actas del curso
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">Consulta el acta y descarga el reporte de calificaciones en PDF.</p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div>
+              <label htmlFor="report-period" className="mb-1.5 block text-xs font-medium text-muted-foreground">Periodo del reporte</label>
+              <select
+                id="report-period"
+                value={reportPeriod}
+                onChange={event => {
+                  const value = event.currentTarget.value;
+                  if (value === "course") setReportPeriod("course");
+                  else if (value === "1") setReportPeriod(1);
+                  else if (value === "2") setReportPeriod(2);
+                  else if (value === "3") setReportPeriod(3);
+                }}
+                className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50 sm:w-auto"
+              >
+                <option value="course">Curso completo (tres trimestres)</option>
+                {courseTrimesters.map(trimester => (
+                  <option key={trimester.id} value={trimester.number}>Trimestre {trimester.number}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={showCourseReport}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <Eye className="h-4 w-4" /> Ver acta
+            </button>
+          </div>
+        </section>
+      )}
+
+      {user.role === "admin" && courseReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="course-report-title">
+          <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-border p-5">
+              <div>
+                <h2 id="course-report-title" className="text-lg font-semibold text-foreground">{courseReport.title}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{courseReport.courseName} · {courseReport.periodLabel}</p>
+              </div>
+              <button type="button" onClick={() => setCourseReport(null)} className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground">Cerrar</button>
+            </div>
+            <div className="flex-1 space-y-5 overflow-y-auto p-5">
+              <dl className="grid gap-3 rounded-lg border border-border bg-card p-4 text-sm sm:grid-cols-2">
+                <div><dt className="text-xs text-muted-foreground">Curso</dt><dd className="mt-0.5 font-medium text-foreground">{courseReport.courseName} ({courseReport.courseLevel}) · {courseReport.year}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">Periodo</dt><dd className="mt-0.5 font-medium text-foreground">{courseReport.periodLabel}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">Docente asignado</dt><dd className="mt-0.5 font-medium text-foreground">{courseReport.teacherName}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">Fecha de generación</dt><dd className="mt-0.5 font-medium text-foreground">{courseReport.generatedAt}</dd></div>
+              </dl>
+
+              {courseReport.students.length === 0 && (
+                <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No hay estudiantes inscritos en este curso.</p>
+              )}
+              {courseReport.trimesters.map(trimester => (
+                <section key={trimester.number} className="overflow-hidden rounded-lg border border-border bg-card">
+                  <h3 className="border-b border-border bg-secondary/20 px-4 py-3 text-sm font-semibold text-foreground">Trimestre {trimester.number}</h3>
+                  {trimester.activities.length === 0 && (
+                    <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">No hay actividades registradas en este trimestre.</p>
+                  )}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-secondary/30 text-muted-foreground">
+                        <tr>
+                          <th className="sticky left-0 z-10 bg-secondary/30 px-4 py-2 font-medium">Estudiante</th>
+                          {trimester.activities.map(activity => (
+                            <th key={activity.id} className="min-w-32 px-4 py-2 text-right font-medium">
+                              <span className="block text-foreground">{activity.name}</span>
+                              <span className="font-normal">Máx. {activity.maxPoints} pts</span>
+                            </th>
+                          ))}
+                          <th className="min-w-28 px-4 py-2 text-right font-medium">Nota trimestre</th>
+                          <th className="min-w-32 px-4 py-2 text-right font-medium">Resultado trimestre</th>
+                          {courseReport.period === "course" && (
+                            <>
+                              <th className="min-w-28 px-4 py-2 text-right font-medium">Promedio curso</th>
+                              <th className="min-w-28 px-4 py-2 text-right font-medium">Resultado curso</th>
+                            </>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {courseReport.students.length > 0 ? courseReport.students.map(student => {
+                          const trimesterScore = student.trimesterScores.find(item => item.number === trimester.number);
+                          return (
+                            <tr key={student.id} className="border-t border-border/60">
+                              <th scope="row" className="sticky left-0 z-10 bg-card px-4 py-3 font-medium text-foreground">{student.name}</th>
+                              {trimester.activities.map(activity => {
+                                const grade = student.activities.find(item => item.id === activity.id);
+                                return (
+                                  <td key={activity.id} className="px-4 py-3 text-right font-medium text-foreground">
+                                    {!grade || grade.score === null ? "—" : grade.notPresent ? "NP" : grade.score}
+                                  </td>
+                                );
+                              })}
+                              <td className="px-4 py-3 text-right font-semibold text-foreground">
+                                {trimesterScore?.score === null || trimesterScore === undefined ? "Pendiente" : `${trimesterScore.score.toFixed(1)} / 100`}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <span className={`rounded-full px-2.5 py-1 font-medium ${
+                                  trimesterScore?.result === "Aprobado" ? "bg-green-100 text-green-700"
+                                    : trimesterScore?.result === "No aprobado" ? "bg-red-100 text-red-700"
+                                      : "bg-amber-100 text-amber-700"
+                                }`}>{trimesterScore?.result ?? "Pendiente"}</span>
+                              </td>
+                              {courseReport.period === "course" && (
+                                <>
+                                  <td className="px-4 py-3 text-right font-semibold text-foreground">
+                                    {student.finalScore === null ? "Pendiente" : `${student.finalScore.toFixed(1)} / 100`}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <span className={`rounded-full px-2.5 py-1 font-medium ${
+                                      student.result === "Aprobado" ? "bg-green-100 text-green-700"
+                                        : student.result === "No aprobado" ? "bg-red-100 text-red-700"
+                                          : "bg-amber-100 text-amber-700"
+                                    }`}>{student.result}</span>
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                          );
+                        }) : (
+                          <tr>
+                            <td colSpan={1 + trimester.activities.length + (courseReport.period === "course" ? 4 : 2)} className="px-4 py-4 text-center text-muted-foreground">
+                              No hay estudiantes inscritos en este curso.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ))}
+
+              <div className="mx-auto mt-10 max-w-sm border-t border-foreground/50 pt-2 text-center text-sm text-foreground">Firma y sello de Supervisor</div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border bg-card p-4">
+              <button type="button" onClick={() => setCourseReport(null)} className="rounded-lg bg-secondary px-4 py-2 text-sm text-secondary-foreground hover:bg-secondary/80">Cerrar</button>
+              <button type="button" onClick={downloadReport} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                <Download className="h-4 w-4" /> Descargar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-secondary/30 rounded-xl p-1 w-fit">

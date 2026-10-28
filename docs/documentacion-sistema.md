@@ -163,8 +163,13 @@ La API debe aplicar autorización por rol en el servidor: solo administradores g
 - Roles visibles: Administrador y Docente. El menú y los botones se condicionan por rol.
 - Flujo docente: Cursos → curso específico → trimestre → actividad fija → **Ingresar calificaciones**. La captura masiva permite una nota por estudiante o `NP`.
 - Flujo administrador: crea estudiantes, los inscribe desde Estudiantes o desde el detalle del Curso, crea cursos y reasigna su docente.
+- Flujo de actas (solo administrador): Cursos → detalle del curso → **Actas del curso** → seleccionar curso completo o trimestre → ver el acta o descargar el PDF.
 - Estilos con Tailwind CSS y variables de tema. La interfaz usa componentes propios, iconos de `lucide-react`, tipografía Inter para texto general y JetBrains Mono para valores numéricos.
 - Diseño adaptable mediante cuadrículas y puntos de quiebre `md` y `lg`; las tablas se desplazan horizontalmente cuando el ancho no es suficiente.
+
+### Actas de curso y trimestre
+
+Las actas se generan con las inscripciones, actividades y calificaciones vigentes, agrupadas en una tabla por trimestre: estudiantes en filas y actividades en columnas. El acta de un trimestre muestra una tabla y el acta completa muestra tres, una por cada trimestre. El acta completa calcula el promedio del curso usando los trimestres que ya tienen calificaciones, como en la vista de Calificaciones. Un trimestre suma sus actividades registradas; `NP` aporta cero puntos. Se aprueba con 70 puntos o más; si aún no hay notas, el resultado se muestra como **Pendiente**. El PDF incluye el docente asignado, las notas por actividad, los resultados y el espacio de firma y sello del supervisor. Las actas son una consulta de los datos actuales, no una copia histórica inmutable.
 
 ### Especificaciones de Hardware
 
