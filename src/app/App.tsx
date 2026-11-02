@@ -108,7 +108,7 @@ function validatePhone(value: string) {
   return /^\d{1,10}$/.test(value) ? "" : "El teléfono solo puede contener números y tener un máximo de 10 dígitos.";
 }
 
-async function getFunctionErrorMessage(error: unknown, fallback: string) {
+async function getFunctionErrorMessage(error: unknown, fallback: string, notFoundMessage = "La función de eliminación no está disponible en Supabase. Despliégala con «supabase functions deploy admin-delete-entity».") {
   if (error instanceof Error && "context" in error && error.context instanceof Response) {
     const response = error.context;
     let body: unknown;
@@ -123,9 +123,7 @@ async function getFunctionErrorMessage(error: unknown, fallback: string) {
       if (typeof details.error === "string") return details.error;
       if (typeof details.message === "string") return details.message;
     }
-    if (response.status === 404) {
-      return "La función de eliminación no está disponible en Supabase. Despliégala con «supabase functions deploy admin-delete-entity».";
-    }
+    if (response.status === 404) return notFoundMessage;
     return `${fallback} (HTTP ${response.status}). ${error.message}`;
   }
 
@@ -1781,6 +1779,7 @@ function UsersView({ currentUser, onCurrentUserUpdated, teachers, setTeachers, c
 }) {
   const [showForm, setShowForm] = useState(false);
   const [newTeacher, setNewTeacher] = useState({ name: "", email: "", password: "" });
+  const [creatingBackup, setCreatingBackup] = useState(false);
 
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   const [editingAdmin, setEditingAdmin] = useState(false);
@@ -1855,12 +1854,64 @@ function UsersView({ currentUser, onCurrentUserUpdated, teachers, setTeachers, c
     setEditingAdmin(false);
     onNotice("success", "Usuario administrador actualizado correctamente.");
   }
+
+  async function generateBackup() {
+    if (!supabase) {
+      onNotice("error", "Configura Supabase para generar un respaldo de los datos.");
+      return;
+    }
+
+    setCreatingBackup(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-export-backup");
+      if (error) {
+        onNotice("error", await getFunctionErrorMessage(
+          error,
+          "No fue posible generar el respaldo.",
+          "La función de respaldo no está disponible en Supabase. Despliégala con «supabase functions deploy admin-export-backup».",
+        ));
+        return;
+      }
+      if (typeof data !== "object" || data === null || !("data" in data)) {
+        throw new Error("La función de respaldo devolvió una respuesta inválida.");
+      }
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `pentha-respaldo-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      onNotice("success", "Respaldo de datos descargado correctamente.");
+    } catch (error) {
+      onNotice("error", error instanceof Error ? error.message : "No fue posible generar el respaldo.");
+    } finally {
+      setCreatingBackup(false);
+    }
+  }
+
   return (
     <div className="p-8 space-y-8 max-w-5xl">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Usuarios</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Gestión de administradores y docentes</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Usuarios</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Gestión de administradores y docentes</p>
+        </div>
+        <button
+          type="button"
+          onClick={generateBackup}
+          disabled={creatingBackup || !supabase}
+          title={!supabase ? "Configura Supabase para generar un respaldo" : undefined}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" />
+          {creatingBackup ? "Generando respaldo…" : "Generar respaldo"}
+        </button>
       </div>
+      <p className="-mt-6 text-xs text-muted-foreground">Descarga los datos académicos en formato JSON. No incluye credenciales ni hashes de contraseña.</p>
 
       {/* Admins */}
       <section>
